@@ -1,4 +1,4 @@
-name: Arhilab SM 0.6.0 Android
+name: Arhilab Смета 0.6.1 Android
 on:
   workflow_dispatch:
   push:
@@ -82,7 +82,7 @@ jobs:
         if: always() && steps.debug.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: Arhilab-SM-0.6.0-${{ github.run_number }}
+          name: Arhilab-Смета-0.6.1-${{ github.run_number }}
           path: output/*.apk
           if-no-files-found: error
           retention-days: 30
