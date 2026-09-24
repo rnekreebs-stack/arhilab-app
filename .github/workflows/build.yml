@@ -1,35 +1,98 @@
-name: Build Android APK
-
+name: Arhilab SM 0.6.0 Android
 on:
-  push:
-    branches: [ "main", "master" ]
   workflow_dispatch:
-
+  push:
+    branches: [main, master]
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   build:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Generate Gradle Wrapper & Build APK
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '11076708'
+          log-accepted-android-sdk-licenses: 'false'
+      - name: Install SDK 35
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+      - name: Restore browser test dependencies
         run: |
-          gradle wrapper
-          chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
-
-      - name: Upload APK
+          npm install --prefix .ci-deps --no-audit --no-fund playwright@1.51.1
+          .ci-deps/node_modules/.bin/playwright install --with-deps chromium
+          echo "NODE_PATH=$GITHUB_WORKSPACE/.ci-deps/node_modules" >> "$GITHUB_ENV"
+      - name: Existing tests
+        run: bash arhilab/tests/run.sh
+      - name: Build and verify Debug APK
+        id: debug
+        run: bash arhilab/build.sh debug
+      - name: Build optional signed Release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ARHILAB_KEYSTORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.ARHILAB_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.ARHILAB_KEY_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.ARHILAB_KEY_ALIAS }}
+        shell: bash
+        run: |
+          if [[ -z "$KEYSTORE_BASE64" && -z "$SIGNING_STORE_PASSWORD" && -z "$SIGNING_KEY_ALIAS" && -z "$SIGNING_KEY_PASSWORD" ]]; then
+            echo 'Release skipped: signing Secrets are not configured.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          : "${KEYSTORE_BASE64:?Incomplete release Secrets}"
+          : "${SIGNING_STORE_PASSWORD:?Incomplete release Secrets}"
+          export SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-release.p12"
+          trap 'rm -f "$SIGNING_KEYSTORE"' EXIT
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$SIGNING_KEYSTORE"
+          bash arhilab/build.sh release
+      - name: Build instrumentation test APK
+        run: bash arhilab/tests/android/build.sh
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android emulator smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: bash arhilab/tests/android/run.sh
+      - name: Record build provenance
+        if: always()
+        run: |
+          mkdir -p output
+          printf 'commit=%s\nrun=%s\nurl=%s/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > output/build-provenance.txt
+      - name: Downloadable APK
+        if: always() && steps.debug.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: ArhiLab-Debug-APK
-          path: app/build/outputs/apk/debug/*.apk
+          name: Arhilab-SM-0.6.0-${{ github.run_number }}
+          path: output/*.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arhilab-verification-${{ github.run_number }}
+          path: |
+            output/*.txt
+            output/*.sha256
+            output/*.png
+          if-no-files-found: error
+          retention-days: 30
