@@ -32,7 +32,7 @@ jobs:
               z.extractall('.')
           PY
           git rm -r -f --ignore-unmatch app build.gradle.kts settings.gradle.kts
-          git rm -f .github/workflows/import-ci-ready.yml Arhilab-SM-0.6.0-CI-ready.zip
+          git rm -f Arhilab-SM-0.6.0-CI-ready.zip
           git add -A
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Build Arhilab SM 0.6.0 via GitHub Actions'
           git push origin HEAD:main
