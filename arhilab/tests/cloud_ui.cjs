@@ -18,7 +18,7 @@ const {chromium}=require('playwright');
  assert.equal((await p.evaluate(()=>window.calls)).find(x=>x.action==='cloudLogin').data.url,'https://sync.example.test');
  await p.getByText('Настройки',{exact:true}).click();assert.match(await p.locator('#app').innerText(),/Общий доступ/);
  await p.getByText('Отправить данные').click();assert((await p.evaluate(()=>window.calls)).some(x=>x.action==='cloudPush'));
- await p.getByText('Выйти',{exact:true}).click();await p.fill('[name=login]','admin');await p.fill('[name=password]','long-admin-secret');await p.click('button[type=submit]');
+ await p.getByText('Выйти из аккаунта',{exact:true}).click();await p.fill('[name=login]','admin');await p.fill('[name=password]','long-admin-secret');await p.click('button[type=submit]');
  assert((await p.evaluate(()=>window.calls)).some(x=>x.action==='login'),'local login remains available after cloud disconnect');
  assert.equal(errors.length,0,errors.join('\n'));console.log('PASS: cloud login, sync UI and local login after disconnect; mocked native bridge.');
 }finally{await browser.close()}})().catch(e=>{console.error(e);process.exit(1)});
