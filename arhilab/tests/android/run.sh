@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 mkdir -p output
-adb install -r output/Arhilab-SM-0.6.0-debug.apk
+adb install -r output/Arhilab-Смета-0.6.1-debug.apk
 adb install -r arhilab/build/smoke/smoke.apk
 adb shell pm clear ru.arhilab.estimate
 adb logcat -c
