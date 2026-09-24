@@ -1,0 +1,1 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="ru.arhilab.estimate.smoke"><uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35"/><application android:label="Arhilab CI Smoke"/><instrumentation android:name="ru.arhilab.estimate.Smoke" android:targetPackage="ru.arhilab.estimate" android:label="Arhilab smoke"/></manifest>
