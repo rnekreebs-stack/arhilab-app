@@ -29,7 +29,7 @@ public class Smoke extends Instrumentation {
   if(resume){
    check("api('status').setup===false","existing admin after process cold restart");
    js("(()=>{let f=document.querySelector('#app form');f.querySelector('[name=login]').value='admin';f.querySelector('[name=password]').value='smoke-password-2026';f.requestSubmit();openProject(S.projects.find(p=>p.name==='Smoke project').id);return true})()");
-   String expected=getContext().getSharedPreferences("smoke",0).getString("total","null");
+   String expected=getTargetContext().getSharedPreferences("smoke",0).getString("total","null");
    report("Cold restart observed="+js("JSON.stringify({project:current()?.name,tier:current()?.lines?.[0]?.materialTier,total:calc(current()).total,projects:S.projects.map(p=>p.name)})")+" expected="+expected);
    check("current().lines[0].materialTier==='premium'&&calc(current()).total==="+expected,"saved estimate survives full process stop and restart");
    check("S.projects.some(p=>p.name==='Legacy estimate')","legacy estimate survives process restart");
@@ -55,7 +55,9 @@ public class Smoke extends Instrumentation {
   check("current().lines[0].materialTier==='premium'&&calc(current()).total!==window.economyTotal","Premium changes total");
   check("Number.isFinite(calc(current()).gross)&&Number.isFinite(calc(current()).margin)","profit and margin are finite");
   check("(()=>{let v=calc(current());return v.gross===Arhilab.round(v.total-v.labor-v.matCost)})()","profit matches procurement and labor");
-  String totals=js("calc(current()).total");getContext().getSharedPreferences("smoke",0).edit().putString("total",totals).commit();
+  js("(()=>{lineForm();let w=C.works.find(w=>w.tiers.standard.materialIds.length===0);chooseWork(w.id);let f=document.querySelector('#modal form');f.querySelector('[name=qty]').value=1;f.requestSubmit();return true})()");
+  check("current().lines.length===2&&current().lines[1].autoMaterial===false&&document.querySelector('#detail .warning')?.textContent.includes('вручную')","unlinked work shows manual material selection without crash");
+  String totals=js("calc(current()).total");getTargetContext().getSharedPreferences("smoke",0).edit().putString("total",totals).commit();
   runOnMainSync(()->activity.finish());waitForIdleSync();launch();
   check("api('status').setup===false","encrypted local database survives Activity restart");
   js("(()=>{let f=document.querySelector('#app form');f.querySelector('[name=login]').value='admin';f.querySelector('[name=password]').value='smoke-password-2026';f.requestSubmit();openProject(S.projects.find(p=>p.name==='Smoke project').id);return true})()");
