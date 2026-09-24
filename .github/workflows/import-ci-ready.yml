@@ -1,0 +1,38 @@
+name: Import Arhilab SM 0.6.0 source
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - Arhilab-SM-0.6.0-CI-ready.zip
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import reviewed CI-ready archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          from zipfile import ZipFile
+          archive = Path('Arhilab-SM-0.6.0-CI-ready.zip')
+          with ZipFile(archive) as z:
+              files = [i for i in z.infolist() if not i.is_dir()]
+              assert len(files) == 46, f'Unexpected file count: {len(files)}'
+              for item in files:
+                  path = PurePosixPath(item.filename)
+                  assert not path.is_absolute() and '..' not in path.parts
+                  assert item.filename != '.github/workflows/import-ci-ready.yml'
+                  assert path.suffix.lower() not in {'.p12', '.pfx', '.jks', '.keystore', '.pem', '.key', '.token'}
+                  assert 'password' not in path.name.lower()
+                  assert (item.external_attr >> 16) & 0o170000 != 0o120000
+              z.extractall('.')
+          PY
+          git rm -r -f --ignore-unmatch app build.gradle.kts settings.gradle.kts
+          git rm -f .github/workflows/import-ci-ready.yml Arhilab-SM-0.6.0-CI-ready.zip
+          git add -A
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Build Arhilab SM 0.6.0 via GitHub Actions'
+          git push origin HEAD:main
