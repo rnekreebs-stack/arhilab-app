@@ -30,6 +30,7 @@ public class Smoke extends Instrumentation {
    check("api('status').setup===false","existing admin after process cold restart");
    js("(()=>{let f=document.querySelector('#app form');f.querySelector('[name=login]').value='admin';f.querySelector('[name=password]').value='smoke-password-2026';f.requestSubmit();openProject(S.projects.find(p=>p.name==='Smoke project').id);return true})()");
    String expected=getContext().getSharedPreferences("smoke",0).getString("total","null");
+   report("Cold restart observed="+js("JSON.stringify({project:current()?.name,tier:current()?.lines?.[0]?.materialTier,total:calc(current()).total,projects:S.projects.map(p=>p.name)})")+" expected="+expected);
    check("current().lines[0].materialTier==='premium'&&calc(current()).total==="+expected,"saved estimate survives full process stop and restart");
    check("S.projects.some(p=>p.name==='Legacy estimate')","legacy estimate survives process restart");
    result.putString("stream","ARHILAB_SMOKE_PASS\n");finish(Activity.RESULT_OK,result);return;
