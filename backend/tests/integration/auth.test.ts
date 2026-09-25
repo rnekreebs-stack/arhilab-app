@@ -52,6 +52,7 @@ test('login, role context, tenant isolation, rotation and revocation',async () =
   assert.equal((await api('/api/v1/users','GET',undefined,at.accessToken+'.admin')).status,401);
   assert.equal((await api('/api/v1/users/'+adminB,'GET',undefined,at.accessToken)).status,404);
   assert.equal((await api('/api/v1/users/'+adminB,'PATCH',{role:'worker'},at.accessToken)).status,404);
+  assert.equal((await api('/api/v1/users/'+adminB,'PATCH',{active:false},at.accessToken)).status,404);
   assert.equal((await api('/api/v1/users/'+adminB+'/devices','GET',undefined,at.accessToken)).status,404);
   assert.equal((await api('/api/v1/devices/'+deviceB+'/revoke','POST',undefined,at.accessToken)).status,404);
   assert.equal((await api('/api/v1/users/'+adminA,'PATCH',{role:'worker'},at.accessToken)).status,409);
@@ -93,6 +94,7 @@ test('login, role context, tenant isolation, rotation and revocation',async () =
   assert.ok((own.body.devices as object[]).length >= 3);
   assert.equal((await api('/api/v1/devices/'+deviceA+'/revoke','POST',undefined,ct.accessToken)).status,204);
   assert.equal((await api('/api/v1/auth/refresh','POST',{refreshToken:at.refreshToken})).status,401);
+  assert.equal((await login(orgA,emailA,nextPassword,deviceA)).status,401);
   assert.equal((await api('/api/v1/users','GET',undefined,bt.accessToken)).status,200);
   const liveDevice=randomUUID(),live=await login(orgA,emailA,nextPassword,liveDevice),liveToken=live.body as unknown as Tokens;
   assert.equal(live.status,200);
@@ -103,10 +105,12 @@ test('login, role context, tenant isolation, rotation and revocation',async () =
   const managerToken=managerSession.body as unknown as Tokens;
   assert.equal((await api('/api/v1/users/'+manager+'/revoke-sessions','POST',undefined,ct.accessToken)).status,204);
   assert.equal((await api('/api/v1/auth/refresh','POST',{refreshToken:managerToken.refreshToken})).status,401);
+  assert.equal((await api('/api/v1/users/'+worker,'PATCH',{active:false},ct.accessToken)).status,200);
+  assert.equal((await login(orgA,'worker-'+orgA+'@test.example')).status,401);
   assert.equal((await api('/api/v1/auth/logout-all','POST',undefined,ct.accessToken)).status,204);
   assert.equal((await api('/api/v1/users','GET',undefined,ct.accessToken)).status,401);
   const auditRows=await pool.query<{action:string}>('SELECT action FROM audit_logs WHERE organization_id=$1',[orgA]);
-  for(const action of ['login.failure','login.success','refresh.success','refresh.reuse','logout','password.changed','employee.created','employee.role_changed','device.registered','device.revoked','sessions.revoked_all']) assert.ok(auditRows.rows.some(row=>row.action===action),action);
+  for(const action of ['login.failure','login.success','refresh.success','refresh.reuse','logout','password.changed','employee.created','employee.role_changed','employee.deactivated','device.registered','device.revoked','sessions.revoked_all']) assert.ok(auditRows.rows.some(row=>row.action===action),action);
   assert.equal((await pool.query('SELECT token_hash FROM refresh_credentials WHERE token_hash=$1',[hashToken(ft.refreshToken)])).rowCount,1);
   assert.equal((await pool.query('SELECT id FROM users WHERE id=$1',[second])).rowCount,1);
 });
