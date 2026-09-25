@@ -14,7 +14,7 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: config.LOGIN_R
 authRouter.post('/login',loginLimiter,validateBody(schemas.login),async (req,res) => {
   const input = schemas.login.parse(req.body);
   const result = await transaction(async client => {
-    const found = await client.query<{id:string;password_hash:string|null;active:boolean;role:'admin'|'manager'|'worker'}>('SELECT id,password_hash,active,role FROM users WHERE organization_id=$1 AND lower(email)=$2 FOR UPDATE',[input.organizationId,input.email]);
+    const found = await client.query<{id:string;password_hash:string|null;active:boolean;role:'admin'|'manager'|'worker';must_change_password:boolean}>('SELECT id,password_hash,active,role,must_change_password FROM users WHERE organization_id=$1 AND lower(email)=$2 FOR NO KEY UPDATE',[input.organizationId,input.email]);
     const user = found.rows[0];
     const valid = await verifyPassword(user?.password_hash ?? await dummyHash,input.password);
     if (!user || !valid || !user.active || !user.password_hash) {
@@ -22,7 +22,7 @@ authRouter.post('/login',loginLimiter,validateBody(schemas.login),async (req,res
       if (org.rowCount) await audit(client,input.organizationId,'login.failure',null,null,'user',null);
       return null;
     }
-    const device = await client.query<{user_id:string;revoked_at:Date|null}>('SELECT user_id,revoked_at FROM devices WHERE id=$1 FOR UPDATE',[input.deviceId]);
+    const device = await client.query<{user_id:string;revoked_at:Date|null}>('SELECT user_id,revoked_at FROM devices WHERE id=$1 FOR NO KEY UPDATE',[input.deviceId]);
     if (device.rows.length && (device.rows[0]?.user_id !== user.id || device.rows[0]?.revoked_at)) {
       await audit(client,input.organizationId,'login.failure',user.id,null,'device',null);
       return null;
@@ -31,9 +31,9 @@ authRouter.post('/login',loginLimiter,validateBody(schemas.login),async (req,res
       await client.query('INSERT INTO devices(id,organization_id,user_id,label,last_seen_at) VALUES($1,$2,$3,$4,now())',[input.deviceId,input.organizationId,user.id,input.deviceLabel ?? null]);
       await audit(client,input.organizationId,'device.registered',user.id,input.deviceId,'device',input.deviceId);
     } else await client.query('UPDATE devices SET last_seen_at=now(),updated_at=now() WHERE id=$1',[input.deviceId]);
-    const tokens = await issueSession(client,{ userId:user.id,organizationId:input.organizationId,role:user.role,deviceId:input.deviceId });
+    const tokens = await issueSession(client,{ userId:user.id,organizationId:input.organizationId,deviceId:input.deviceId });
     await audit(client,input.organizationId,'login.success',user.id,input.deviceId,'session',tokens.sessionId);
-    return { ...tokens, user:{ id:user.id,organizationId:input.organizationId,role:user.role },deviceId:input.deviceId };
+    return { ...tokens, user:{ id:user.id,organizationId:input.organizationId,role:user.role,mustChangePassword:user.must_change_password },deviceId:input.deviceId };
   });
   if (!result) throw invalid();
   res.json(result);
@@ -41,7 +41,7 @@ authRouter.post('/login',loginLimiter,validateBody(schemas.login),async (req,res
 authRouter.post('/refresh',validateBody(schemas.refresh),async (req,res) => {
   const { refreshToken } = schemas.refresh.parse(req.body);
   const result = await transaction(async client => {
-    const found = await client.query<{id:string;organization_id:string;session_id:string;consumed_at:Date|null;revoked_at:Date|null;expires_at:Date;user_id:string;device_id:string;session_revoked:Date|null;session_expires:Date;active:boolean;device_revoked:Date|null}>(`SELECT r.id,r.organization_id,r.session_id,r.consumed_at,r.revoked_at,r.expires_at,s.user_id,s.device_id,s.revoked_at AS session_revoked,s.expires_at AS session_expires,u.active,d.revoked_at AS device_revoked FROM refresh_credentials r JOIN sessions s ON s.id=r.session_id JOIN users u ON u.id=s.user_id JOIN devices d ON d.id=s.device_id WHERE r.token_hash=$1 FOR UPDATE OF r,s`,[hashToken(refreshToken)]);
+    const found = await client.query<{id:string;organization_id:string;session_id:string;consumed_at:Date|null;revoked_at:Date|null;expires_at:Date;user_id:string;device_id:string;session_revoked:Date|null;session_expires:Date;active:boolean;device_revoked:Date|null}>(`SELECT r.id,r.organization_id,r.session_id,r.consumed_at,r.revoked_at,r.expires_at,s.user_id,s.device_id,s.revoked_at AS session_revoked,s.expires_at AS session_expires,u.active,d.revoked_at AS device_revoked FROM refresh_credentials r JOIN sessions s ON s.id=r.session_id JOIN users u ON u.id=s.user_id JOIN devices d ON d.id=s.device_id WHERE r.token_hash=$1 FOR NO KEY UPDATE OF r,s`,[hashToken(refreshToken)]);
     const row = found.rows[0];
     if (!row) return null;
     if (row.consumed_at) {
@@ -73,10 +73,10 @@ authRouter.post('/logout-all',authenticate,async (_req,res) => {
 authRouter.post('/change-password',authenticate,validateBody(schemas.changePassword),async (req,res) => {
   const ctx=identity(res), input=schemas.changePassword.parse(req.body);
   await transaction(async client => {
-    const found=await client.query<{password_hash:string|null}>('SELECT password_hash FROM users WHERE id=$1 AND organization_id=$2 FOR UPDATE',[ctx.userId,ctx.organizationId]);
+    const found=await client.query<{password_hash:string|null}>('SELECT password_hash FROM users WHERE id=$1 AND organization_id=$2 FOR NO KEY UPDATE',[ctx.userId,ctx.organizationId]);
     const hash=found.rows[0]?.password_hash;
     if (!hash || !await verifyPassword(hash,input.currentPassword)) throw invalid();
-    await client.query('UPDATE users SET password_hash=$1,password_changed_at=now(),updated_at=now() WHERE id=$2',[await hashPassword(input.newPassword),ctx.userId]);
+    await client.query('UPDATE users SET password_hash=$1,password_changed_at=now(),must_change_password=false,updated_at=now() WHERE id=$2',[await hashPassword(input.newPassword),ctx.userId]);
     await revokeSessions(client,ctx.organizationId,ctx.userId,ctx.sessionId);
     await audit(client,ctx.organizationId,'password.changed',ctx.userId,ctx.deviceId,'user',ctx.userId);
   });

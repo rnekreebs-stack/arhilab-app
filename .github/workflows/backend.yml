@@ -54,5 +54,7 @@ jobs:
           done
           docker compose logs
           exit 1
+      - name: Verify production bootstrap command
+        run: docker compose exec -T api test -f /app/dist/bootstrap.js
       - if: always()
         run: docker compose down -v

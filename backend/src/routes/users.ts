@@ -23,16 +23,16 @@ usersRouter.post('/',validateBody(schemas.createUser),async (req,res) => {
   await transaction(async client => {
     const exists=await client.query('SELECT id FROM users WHERE organization_id=$1 AND lower(email)=$2',[ctx.organizationId,input.email]);
     if (exists.rowCount) throw new HttpError(409,'Email already exists');
-    await client.query('INSERT INTO users(id,organization_id,email,display_name,role,password_hash) VALUES($1,$2,$3,$4,$5,$6)',[id,ctx.organizationId,input.email,input.displayName,input.role,passwordHash]);
+    await client.query('INSERT INTO users(id,organization_id,email,display_name,role,password_hash,must_change_password) VALUES($1,$2,$3,$4,$5,$6,true)',[id,ctx.organizationId,input.email,input.displayName,input.role,passwordHash]);
     await audit(client,ctx.organizationId,'employee.created',ctx.userId,ctx.deviceId,'user',id,{role:input.role});
   });
-  res.status(201).json({id,email:input.email,displayName:input.displayName,role:input.role,active:true});
+  res.status(201).json({id,email:input.email,displayName:input.displayName,role:input.role,active:true,mustChangePassword:true});
 });
 usersRouter.patch('/:id',validateId,validateBody(schemas.updateUser),async (req,res) => {
   const ctx=identity(res), targetId=String(req.params.id), input=schemas.updateUser.parse(req.body);
   const user=await transaction(async client => {
-    await client.query('SELECT id FROM organizations WHERE id=$1 FOR UPDATE',[ctx.organizationId]);
-    const found=await client.query<{id:string;role:string;active:boolean;display_name:string;email:string}>('SELECT id,role,active,display_name,email FROM users WHERE id=$1 AND organization_id=$2 FOR UPDATE',[targetId,ctx.organizationId]);
+    await client.query('SELECT id FROM organizations WHERE id=$1 FOR NO KEY UPDATE',[ctx.organizationId]);
+    const found=await client.query<{id:string;role:string;active:boolean;display_name:string;email:string}>('SELECT id,role,active,display_name,email FROM users WHERE id=$1 AND organization_id=$2 FOR NO KEY UPDATE',[targetId,ctx.organizationId]);
     const row=found.rows[0]; if (!row) throw new HttpError(404,'Not found');
     const role=input.role ?? row.role, active=input.active ?? row.active;
     if (row.active && row.role === 'admin' && (!active || role !== 'admin')) {

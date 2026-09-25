@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { hashPassword, transaction } from '../src/services/security.js';
-import { pool } from '../src/database/pool.js';
+import { hashPassword, transaction } from './services/security.js';
+import { pool } from './database/pool.js';
 const input=z.object({ BOOTSTRAP_ORGANIZATION_NAME:z.string().trim().min(1),BOOTSTRAP_ADMIN_EMAIL:z.email(),BOOTSTRAP_ADMIN_PASSWORD:z.string().min(12).max(128) }).parse(process.env);
 const hash=await hashPassword(input.BOOTSTRAP_ADMIN_PASSWORD);
 try {

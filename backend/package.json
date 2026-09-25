@@ -20,7 +20,7 @@
     "migrate:down": "node-pg-migrate down --migrations-dir migrations",
     "migrate:test": "bash scripts/migration-test.sh",
     "seed:dev": "node --import tsx scripts/seed-development.ts",
-    "bootstrap:admin": "node --import tsx scripts/bootstrap-admin.ts"
+    "bootstrap:admin": "node dist/bootstrap.js"
   },
   "dependencies": {
     "argon2": "0.44.0",

@@ -7,7 +7,7 @@ import { verifyPassword } from '../../src/services/security.js';
 test('bootstrap creates first admin and refuses repeat without exposing password',async () => {
   const name='Bootstrap '+randomUUID(), password='long initial password 123';
   const env={ ...process.env, BOOTSTRAP_ORGANIZATION_NAME:name,BOOTSTRAP_ADMIN_EMAIL:'first@test.example',BOOTSTRAP_ADMIN_PASSWORD:password };
-  const run=()=>spawnSync(process.execPath,['--import','tsx','scripts/bootstrap-admin.ts'],{cwd:process.cwd(),env,encoding:'utf8',timeout:20000});
+  const run=()=>spawnSync(process.execPath,['--import','tsx','src/bootstrap.ts'],{cwd:process.cwd(),env,encoding:'utf8',timeout:20000});
   try {
     const first=run(); assert.equal(first.status,0,first.stderr);
     const second=run(); assert.notEqual(second.status,0);
