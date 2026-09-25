@@ -4,13 +4,13 @@ import { randomUUID } from 'node:crypto';
 import { config } from '../config/env.js';
 import { validateBody } from '../validation/request.js';
 import * as schemas from '../validation/auth.js';
-import { HttpError } from '../middleware/errors.js';
+import { HttpError, rateLimitResponse } from '../middleware/errors.js';
 import { authenticate, identity } from '../middleware/auth.js';
 import { audit, generateToken, hashPassword, hashToken, issueSession, revokeSessions, transaction, verifyPassword } from '../services/security.js';
 export const authRouter = Router();
 const invalid = () => new HttpError(401,'Invalid credentials');
 const dummyHash = hashPassword('unavailable dummy password for timing');
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: config.LOGIN_RATE_LIMIT_MAX, standardHeaders: 'draft-8', legacyHeaders: false, message: { error:'Too many attempts' } });
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: config.LOGIN_RATE_LIMIT_MAX, standardHeaders: 'draft-8', legacyHeaders: false, handler:rateLimitResponse });
 authRouter.post('/login',loginLimiter,validateBody(schemas.login),async (req,res) => {
   const input = schemas.login.parse(req.body);
   const result = await transaction(async client => {

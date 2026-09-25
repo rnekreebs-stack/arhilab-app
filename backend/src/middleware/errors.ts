@@ -5,6 +5,9 @@ export class HttpError extends Error {
   constructor(public readonly status: number, message: string) { super(message); }
 }
 export const notFound: RequestHandler = (_req, _res, next) => next(new HttpError(404, 'Not found'));
+export const rateLimitResponse: RequestHandler = (_req,res) => {
+  res.status(429).json({error:'Too many requests',code:'rate_limited',errorClass:'retryable',requestId:String(res.locals.requestId)});
+};
 export const errorHandler: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
   const parserStatus = error instanceof Error && 'status' in error && typeof error.status === 'number' && error.status >= 400 && error.status < 500 ? error.status : 500;
   const status = error instanceof ZodError ? 400 : error instanceof HttpError ? error.status : parserStatus;

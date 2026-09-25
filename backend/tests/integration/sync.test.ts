@@ -211,6 +211,11 @@ test('batch and envelope validation, roles, password-change gate and stable HTTP
 });
 
 test('concurrent cursor allocation and rollback of failed change insert are atomic',async()=>{
+  // Each integration scenario owns a fresh in-memory rate limiter; database state persists.
+  await new Promise<void>(resolve=>server.close(()=>resolve()));
+  server=createApp().listen(0,'127.0.0.1');
+  await new Promise<void>(resolve=>server.once('listening',resolve));
+  const address=server.address();if(!address||typeof address==='string')throw Error('No port');base=`http://127.0.0.1:${address.port}`;
   const ids=Array.from({length:8},()=>randomUUID());
   const simultaneous=await Promise.all(ids.map(id=>push([op('material',id,'create',0,{name:'Parallel'})],accessA2)));
   assert.ok(simultaneous.every(r=>r.results[0]?.status==='applied'));
