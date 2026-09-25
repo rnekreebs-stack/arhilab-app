@@ -1,4 +1,4 @@
-name: Arhilab Смета 0.6.1 Android
+name: Arhilab Смета 0.6.2 Android
 on:
   workflow_dispatch:
   push:
@@ -14,6 +14,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -35,9 +37,38 @@ jobs:
           echo "NODE_PATH=$GITHUB_WORKSPACE/.ci-deps/node_modules" >> "$GITHUB_ENV"
       - name: Existing tests
         run: bash arhilab/tests/run.sh
+      - name: Compile application sources
+        run: |
+          mkdir -p "$RUNNER_TEMP/arhilab-classes"
+          javac -encoding UTF-8 -source 8 -target 8 -classpath "$ANDROID_SDK_ROOT/platforms/android-35/android.jar" -d "$RUNNER_TEMP/arhilab-classes" arhilab/src/ru/arhilab/estimate/*.java
+      - name: Restore permanent Debug keystore
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.ARHILAB_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          : "${DEBUG_KEYSTORE_BASE64:?Configure ARHILAB_DEBUG_KEYSTORE_BASE64 before a build}"
+          umask 077
+          printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/arhilab-debug.keystore"
+          keytool -list -keystore "$RUNNER_TEMP/arhilab-debug.keystore" -storepass android -alias androiddebugkey > /dev/null
       - name: Build and verify Debug APK
         id: debug
-        run: bash arhilab/build.sh debug
+        env:
+          SIGNING_STORE_PASSWORD: android
+          SIGNING_KEY_PASSWORD: android
+          SIGNING_KEY_ALIAS: androiddebugkey
+        run: |
+          export SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore"
+          bash arhilab/build.sh debug
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' output/*debug.apk.signature.txt
+          grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' output/*debug.apk.signature.txt
+      - name: Build 0.6.1 upgrade fixture with the same permanent Debug key
+        env:
+          SIGNING_STORE_PASSWORD: android
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/arhilab-baseline" cadcdeca74300cc9ebe9bafcc0a4f789c2806997
+          mkdir -p "$RUNNER_TEMP/arhilab-baseline/arhilab/build"
+          cp "$RUNNER_TEMP/arhilab-debug.keystore" "$RUNNER_TEMP/arhilab-baseline/arhilab/build/debug.keystore"
+          bash "$RUNNER_TEMP/arhilab-baseline/arhilab/build.sh" debug
+          cp "$RUNNER_TEMP/arhilab-baseline/output/Arhilab-Смета-0.6.1-debug.apk" output/upgrade-baseline-0.6.1.apk
       - name: Build optional signed Release APK
         env:
           KEYSTORE_BASE64: ${{ secrets.ARHILAB_KEYSTORE_BASE64 }}
@@ -58,13 +89,13 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$SIGNING_KEYSTORE"
           bash arhilab/build.sh release
       - name: Build instrumentation test APK
-        run: bash arhilab/tests/android/build.sh
+        run: SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore" bash arhilab/tests/android/build.sh
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Android emulator smoke test
+      - name: Android emulator upgrade, offline and smoke tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -82,8 +113,8 @@ jobs:
         if: always() && steps.debug.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: Arhilab-Смета-0.6.1-${{ github.run_number }}
-          path: output/*.apk
+          name: Arhilab-Смета-0.6.2-${{ github.run_number }}
+          path: output/Arhilab-Смета-0.6.2-*.apk
           if-no-files-found: error
           retention-days: 30
       - name: Verification reports

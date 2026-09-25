@@ -23,4 +23,5 @@ public final class PhotoStore {
     Cipher c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.DECRYPT_MODE,key,new GCMParameterSpec(128,Arrays.copyOfRange(all,0,12)));c.updateAAD(id.getBytes("UTF-8"));return c.doFinal(all,12,all.length-12);
   }
   public void delete(String id){File file=path(id);if(file.exists()&&!file.delete())throw new IllegalStateException("Не удалось удалить фото");}
+  public boolean exists(String id){return path(id).isFile();}
 }

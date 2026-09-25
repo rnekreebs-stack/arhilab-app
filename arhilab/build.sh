@@ -23,7 +23,7 @@ import sys, pathlib, xml.etree.ElementTree as ET
 variant, build = sys.argv[1:]
 p=pathlib.Path('AndroidManifest.xml');root=ET.fromstring(p.read_text());a='{http://schemas.android.com/apk/res/android}'
 assert root.attrib['package']=='ru.arhilab.estimate'
-assert root.attrib[a+'versionName']=='0.6.1' and root.attrib[a+'versionCode']=='8'
+assert root.attrib[a+'versionName']=='0.6.2' and root.attrib[a+'versionCode']=='9'
 ET.register_namespace('android',a[1:-1]);root.find('application').set(a+'debuggable','true' if variant=='debug' else 'false')
 ET.ElementTree(root).write(pathlib.Path(build)/'AndroidManifest.xml',encoding='utf-8',xml_declaration=True)
 PY
@@ -35,19 +35,17 @@ with zipfile.ZipFile(b+'/base.apk','a',zipfile.ZIP_DEFLATED) as z:z.write(b+'/cl
 PY
 "$BT/zipalign" -f -p 4 "$BUILD/base.apk" "$BUILD/aligned.apk"
 if [[ "$variant" == debug ]]; then
-  SIGNING_KEYSTORE="$(pwd)/build/debug.keystore"
-  if [[ ! -f "$SIGNING_KEYSTORE" ]]; then
-    keytool -genkeypair -keystore "$SIGNING_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug,O=Android,C=US' >/dev/null 2>&1
-  fi
-  export SIGNING_STORE_PASSWORD=android SIGNING_KEY_PASSWORD=android
-  SIGNING_KEY_ALIAS=androiddebugkey
+  : "${SIGNING_KEYSTORE:?Debug requires the persistent keystore from GitHub Secret}"
+  : "${SIGNING_STORE_PASSWORD:?Debug requires the keystore password}"
+  : "${SIGNING_KEY_ALIAS:=androiddebugkey}"
+  export SIGNING_KEY_PASSWORD="${SIGNING_KEY_PASSWORD:-$SIGNING_STORE_PASSWORD}"
 else
   : "${SIGNING_KEYSTORE:?Release requires signing keystore path}"
   : "${SIGNING_STORE_PASSWORD:?Release requires SIGNING_STORE_PASSWORD}"
   : "${SIGNING_KEY_ALIAS:=arhilab}"
   export SIGNING_KEY_PASSWORD="${SIGNING_KEY_PASSWORD:-$SIGNING_STORE_PASSWORD}"
 fi
-APK="../output/Arhilab-Смета-0.6.1-$variant.apk"
+APK="../output/Arhilab-Смета-0.6.2-$variant.apk"
 "$BT/apksigner" sign --ks "$SIGNING_KEYSTORE" --ks-key-alias "$SIGNING_KEY_ALIAS" --ks-pass env:SIGNING_STORE_PASSWORD --key-pass env:SIGNING_KEY_PASSWORD --out "$APK" "$BUILD/aligned.apk"
 "$BT/apksigner" verify --verbose --print-certs "$APK" > "$APK.signature.txt"
 if [[ "$variant" == release ]]; then
@@ -58,10 +56,10 @@ python3 - "$APK" <<'PY'
 import sys,pathlib,zipfile,json,hashlib
 p=pathlib.Path(sys.argv[1]);assert p.stat().st_size>0
 info=pathlib.Path(str(p)+'.metadata.txt').read_text()
-assert "name='ru.arhilab.estimate'" in info and "versionName='0.6.1'" in info and "versionCode='8'" in info
+assert "name='ru.arhilab.estimate'" in info and "versionName='0.6.2'" in info and "versionCode='9'" in info
 with zipfile.ZipFile(p) as z:
  c=json.loads(z.read('assets/catalog.json'));assert len(c['materials'])==254
  assert len(c['works'])==371 and sum(bool(w['tiers']['standard']['materialIds']) for w in c['works'])==110
 p.with_suffix('.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')
-print('Verified:',p,'bytes:',p.stat().st_size,'package ru.arhilab.estimate, version 0.6.1 (8), 254 SKU')
+print('Verified:',p,'bytes:',p.stat().st_size,'package ru.arhilab.estimate, version 0.6.2 (9), 254 SKU')
 PY
