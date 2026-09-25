@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { pool } from '../database/pool.js';
 import { adminOnly, authenticate, identity, validateId } from '../middleware/auth.js';
 import { HttpError } from '../middleware/errors.js';
-import { audit, hashPassword, revokeSessions, transaction } from '../services/security.js';
+import { assertCurrentAdmin, audit, hashPassword, revokeSessions, transaction } from '../services/security.js';
 import { validateBody } from '../validation/request.js';
 import * as schemas from '../validation/auth.js';
 export const usersRouter = Router();
@@ -21,6 +21,8 @@ usersRouter.get('/:id',validateId,async (req,res) => {
 usersRouter.post('/',validateBody(schemas.createUser),async (req,res) => {
   const ctx=identity(res), input=schemas.createUser.parse(req.body), id=randomUUID(), passwordHash=await hashPassword(input.password);
   await transaction(async client => {
+    await client.query('SELECT id FROM organizations WHERE id=$1 FOR NO KEY UPDATE',[ctx.organizationId]);
+    await assertCurrentAdmin(client,ctx);
     const exists=await client.query('SELECT id FROM users WHERE organization_id=$1 AND lower(email)=$2',[ctx.organizationId,input.email]);
     if (exists.rowCount) throw new HttpError(409,'Email already exists');
     await client.query('INSERT INTO users(id,organization_id,email,display_name,role,password_hash,must_change_password) VALUES($1,$2,$3,$4,$5,$6,true)',[id,ctx.organizationId,input.email,input.displayName,input.role,passwordHash]);
@@ -32,6 +34,7 @@ usersRouter.patch('/:id',validateId,validateBody(schemas.updateUser),async (req,
   const ctx=identity(res), targetId=String(req.params.id), input=schemas.updateUser.parse(req.body);
   const user=await transaction(async client => {
     await client.query('SELECT id FROM organizations WHERE id=$1 FOR NO KEY UPDATE',[ctx.organizationId]);
+    await assertCurrentAdmin(client,ctx);
     const found=await client.query<{id:string;role:string;active:boolean;display_name:string;email:string}>('SELECT id,role,active,display_name,email FROM users WHERE id=$1 AND organization_id=$2 FOR NO KEY UPDATE',[targetId,ctx.organizationId]);
     const row=found.rows[0]; if (!row) throw new HttpError(404,'Not found');
     const role=input.role ?? row.role, active=input.active ?? row.active;
@@ -50,6 +53,8 @@ usersRouter.patch('/:id',validateId,validateBody(schemas.updateUser),async (req,
 usersRouter.post('/:id/revoke-sessions',validateId,async (req,res) => {
   const ctx=identity(res), targetId=String(req.params.id);
   await transaction(async client => {
+    await client.query('SELECT id FROM organizations WHERE id=$1 FOR NO KEY UPDATE',[ctx.organizationId]);
+    await assertCurrentAdmin(client,ctx);
     const found=await client.query('SELECT id FROM users WHERE id=$1 AND organization_id=$2',[targetId,ctx.organizationId]);
     if (!found.rowCount) throw new HttpError(404,'Not found');
     await revokeSessions(client,ctx.organizationId,targetId);

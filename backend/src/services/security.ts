@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import argon2 from 'argon2';
 import type { PoolClient } from 'pg';
 import { pool } from '../database/pool.js';
+import { HttpError } from '../middleware/errors.js';
 export const ACCESS_MS = 15 * 60 * 1000;
 export const REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -15,6 +16,10 @@ export async function transaction<T>(fn: (client: PoolClient) => Promise<T>): Pr
   finally { client.release(); }
 }
 export type Identity = { userId: string; organizationId: string; role: 'admin'|'manager'|'worker'; deviceId: string; sessionId: string; mustChangePassword: boolean };
+export async function assertCurrentAdmin(client: PoolClient, ctx: Identity) {
+  const valid=await client.query(`SELECT u.id FROM users u JOIN sessions s ON s.user_id=u.id AND s.organization_id=u.organization_id JOIN devices d ON d.id=s.device_id AND d.organization_id=s.organization_id WHERE u.id=$1 AND u.organization_id=$2 AND s.id=$3 AND u.role='admin' AND u.active AND NOT u.must_change_password AND s.revoked_at IS NULL AND s.access_expires_at>now() AND d.revoked_at IS NULL FOR SHARE OF u,s`,[ctx.userId,ctx.organizationId,ctx.sessionId]);
+  if (!valid.rowCount) throw new HttpError(403,'Forbidden');
+}
 export async function audit(client: PoolClient, organizationId: string, action: string, actorId: string | null, deviceId: string | null, targetType: string, targetId: string | null, metadata: Record<string, string> = {}) {
   await client.query('INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [randomUUID(),organizationId,actorId,deviceId,action,targetType,targetId,JSON.stringify(metadata)]);
 }

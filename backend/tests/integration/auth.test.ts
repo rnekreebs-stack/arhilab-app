@@ -45,7 +45,11 @@ test('login, role context, tenant isolation, rotation and revocation',async () =
   assert.equal((await login(orgA,emailA,password,deviceA)).status,200);
   assert.equal((await pool.query('SELECT id FROM devices WHERE id=$1',[deviceA])).rowCount,1);
   assert.equal(at.user.organizationId,orgA);
-  assert.equal((await api('/api/v1/users','GET',undefined,at.accessToken)).status,200);
+  const ownUsers=await api('/api/v1/users','GET',undefined,at.accessToken);
+  assert.equal(ownUsers.status,200);
+  assert.ok(!(ownUsers.body.users as Array<{id:string}>).some(user=>user.id===adminB));
+  assert.equal((await login(orgB,emailA)).status,401);
+  assert.equal((await api('/api/v1/users','GET',undefined,at.accessToken+'.admin')).status,401);
   assert.equal((await api('/api/v1/users/'+adminB,'GET',undefined,at.accessToken)).status,404);
   assert.equal((await api('/api/v1/users/'+adminB,'PATCH',{role:'worker'},at.accessToken)).status,404);
   assert.equal((await api('/api/v1/users/'+adminB+'/devices','GET',undefined,at.accessToken)).status,404);
