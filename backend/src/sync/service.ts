@@ -4,6 +4,7 @@ import { pool } from '../database/pool.js';
 import { HttpError } from '../middleware/errors.js';
 import { assertCurrentAdmin, transaction, type Identity } from '../services/security.js';
 import { parsePayload, specification, type EntityType } from './registry.js';
+import { canonical } from './canonical.js';
 import type { SyncOperation } from './validation.js';
 
 export type SyncResult = {
@@ -16,14 +17,6 @@ export type SyncResult = {
   sequence?:string;
   originalStatus?:string;
 };
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    const obj=value as Record<string,unknown>;
-    return `{${Object.keys(obj).sort().map(key=>`${JSON.stringify(key)}:${canonical(obj[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
 function requestHash(op: SyncOperation) { return createHash('sha256').update(canonical(op)).digest('hex'); }
 const rejected=(op:SyncOperation,errorClass:NonNullable<SyncResult['errorClass']>,code:string):SyncResult=>({operationId:op.operationId,status:'rejected',errorClass,code});
 const conflict=(op:SyncOperation,currentRevision:number):SyncResult=>({operationId:op.operationId,status:'conflict',errorClass:'conflict',code:'stale_revision',currentRevision});

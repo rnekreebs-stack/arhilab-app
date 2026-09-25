@@ -248,3 +248,29 @@ test('validation, tenant scope and revoked device security',async()=>{
   assert.equal((await request('/api/v1/sync/pull','GET',undefined,accessA)).status,401);
   assert.equal((await request('/api/v1/sync/pull','GET',undefined,accessA2)).status,200);
 });
+
+test('sync requires a live device and user; reactivation does not revive old sessions',async()=>{
+  const temporary=randomUUID();
+  const userLogin=await request('/api/v1/auth/login','POST',{organizationId:orgA,email:worker+'@test.example',password,deviceId:temporary});
+  assert.equal(userLogin.status,200);
+  const access=String(userLogin.body.accessToken),refresh=String(userLogin.body.refreshToken);
+  assert.equal((await request('/api/v1/sync/pull','GET',undefined,access)).status,200);
+  assert.equal((await request('/api/v1/devices/'+temporary+'/revoke','POST',undefined,accessA2)).status,204);
+  assert.equal((await request('/api/v1/sync/pull','GET',undefined,access)).status,401);
+  assert.equal((await push([op('project',randomUUID(),'create',0,{name:'Denied'})],access)).status,401);
+  assert.equal((await request('/api/v1/auth/refresh','POST',{refreshToken:refresh})).status,401);
+  assert.equal((await request('/api/v1/sync/pull','GET',undefined,accessA2)).status,200);
+
+  const newDevice=randomUUID();
+  const second=await request('/api/v1/auth/login','POST',{organizationId:orgA,email:worker+'@test.example',password,deviceId:newDevice});
+  assert.equal(second.status,200);
+  const oldAccess=String(second.body.accessToken),oldRefresh=String(second.body.refreshToken);
+  assert.equal((await request('/api/v1/users/'+worker,'PATCH',{active:false},accessA2)).status,200);
+  assert.equal((await request('/api/v1/auth/login','POST',{organizationId:orgA,email:worker+'@test.example',password,deviceId:randomUUID()})).status,401);
+  assert.equal((await request('/api/v1/sync/pull','GET',undefined,oldAccess)).status,401);
+  assert.equal((await push([op('material',randomUUID(),'create',0,{name:'Denied'})],oldAccess)).status,401);
+  assert.equal((await request('/api/v1/auth/refresh','POST',{refreshToken:oldRefresh})).status,401);
+  assert.equal((await request('/api/v1/users/'+worker,'PATCH',{active:true},accessA2)).status,200);
+  assert.equal((await request('/api/v1/sync/pull','GET',undefined,oldAccess)).status,401);
+  assert.equal((await request('/api/v1/auth/refresh','POST',{refreshToken:oldRefresh})).status,401);
+});

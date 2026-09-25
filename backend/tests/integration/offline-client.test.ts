@@ -41,6 +41,14 @@ test('offline local writes survive restart, lost response retries and conflict s
     assert.deepEqual((await push(queue.queue)).results.map(result=>result.status),['applied','applied','applied']);
     queue=await DurableQueue.open(path);
     assert.equal(queue.queue[0]?.state,'retry');
+    assert.equal(queue.queue[0]?.attemptCount,1);
+    const retryAt=new Date(Date.now()+2000).toISOString();
+    await queue.mark(queue.queue[0].operationId,'retry',retryAt);
+    queue=await DurableQueue.open(path);
+    assert.equal(queue.queue[0]?.attemptCount,1);
+    assert.equal(queue.queue[0]?.nextAttemptAt,retryAt);
+    await queue.mark(queue.queue[0].operationId,'sending');
+    assert.equal(queue.queue[0]?.attemptCount,2);
     const retried=await push(queue.queue);
     assert.deepEqual(retried.results.map(result=>result.status),['duplicate','duplicate','duplicate']);
     for(const item of queue.queue) await queue.mark(item.operationId,'applied');

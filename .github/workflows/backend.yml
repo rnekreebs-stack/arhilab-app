@@ -57,5 +57,10 @@ jobs:
           exit 1
       - name: Verify production bootstrap command
         run: docker compose exec -T api test -f /app/dist/bootstrap.js
+      - name: Compose bootstrap and sync smoke test
+        run: |
+          org="$(docker compose exec -T -e BOOTSTRAP_ORGANIZATION_NAME='CI smoke org' -e BOOTSTRAP_ADMIN_EMAIL=ci-smoke@test.example -e BOOTSTRAP_ADMIN_PASSWORD='local-ci-only-password-123' api node dist/bootstrap.js | sed -n 's/^Organization initialized: //p')"
+          test -n "$org"
+          COMPOSE_SMOKE_ORG="$org" COMPOSE_SMOKE_PASSWORD='local-ci-only-password-123' node --import tsx scripts/smoke-compose.ts
       - if: always()
         run: docker compose down -v

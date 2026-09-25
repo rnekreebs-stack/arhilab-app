@@ -30,11 +30,12 @@ export class DurableQueue {
   }
   get queue() { return this.state.queue.map(item=>({...item})); }
   get entities() { return {...this.state.entities}; }
-  async mark(operationId:string,state:QueueItem['state']) {
+  async mark(operationId:string,state:QueueItem['state'],nextAttemptAt:string|null=null) {
     const item=this.state.queue.find(entry=>entry.operationId===operationId);
     if (!item) throw Error('Unknown operation');
     item.state=state;
-    if(state==='sending'||state==='retry') item.attemptCount++;
+    if(state==='sending') item.attemptCount++;
+    item.nextAttemptAt=state==='retry'?nextAttemptAt:null;
     await this.save();
   }
 }
