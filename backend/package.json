@@ -19,9 +19,11 @@
     "migrate:up": "node-pg-migrate up --migrations-dir migrations --check-order",
     "migrate:down": "node-pg-migrate down --migrations-dir migrations",
     "migrate:test": "bash scripts/migration-test.sh",
-    "seed:dev": "node --import tsx scripts/seed-development.ts"
+    "seed:dev": "node --import tsx scripts/seed-development.ts",
+    "bootstrap:admin": "node --import tsx scripts/bootstrap-admin.ts"
   },
   "dependencies": {
+    "argon2": "0.44.0",
     "cors": "2.8.5",
     "dotenv": "17.2.3",
     "express": "5.2.1",

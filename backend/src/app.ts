@@ -8,6 +8,9 @@ import { pool } from './database/pool.js';
 import { requestContext } from './middleware/request.js';
 import { errorHandler, notFound } from './middleware/errors.js';
 import { checkDatabase } from './services/health.js';
+import { authRouter } from './routes/auth.js';
+import { usersRouter } from './routes/users.js';
+import { devicesRouter } from './routes/devices.js';
 
 export function createApp(db: Pick<Pool, 'query'> = pool) {
   const app = express();
@@ -23,6 +26,9 @@ export function createApp(db: Pick<Pool, 'query'> = pool) {
     const connected = await checkDatabase(db);
     res.status(connected ? 200 : 503).json({ status: connected ? 'ok' : 'unavailable', apiVersion: 'v1', backendVersion: config.BACKEND_VERSION, database: connected ? 'connected' : 'unavailable', timestamp: new Date().toISOString() });
   });
+  app.use('/api/v1/auth',authRouter);
+  app.use('/api/v1/users',usersRouter);
+  app.use('/api/v1/devices',devicesRouter);
   app.use(notFound);
   app.use(errorHandler);
   return app;

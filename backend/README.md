@@ -140,3 +140,21 @@ Credentials, connection strings и секреты в ответ не входя�
 - централизованные Zod schemas.
 
 Полноценная аутентификация, refresh tokens, роли в runtime и device authorization относятся к следующим этапам.
+
+## Stage 2 — authentication and employees
+
+Stage 2 adds `002_authentication.cjs` over the original Stage 1 migration: Argon2id password hashes, active employees, sessions with short-lived opaque access tokens and separate rotated refresh credentials. SHA-256 digests of 256-bit random tokens are stored; bearer and refresh plaintext never enter the database. Access lasts 15 minutes; a refresh family ends 30 days after login, without sliding expiration. Every protected request checks current session, user role/activity and device state in PostgreSQL, allowing immediate revocation. Reuse of an already rotated refresh token revokes its session. Each refresh runs in a transaction with row locks.
+
+`users` is the employee entity. Admin can create/list/update employees, set `admin`/`manager`/`worker` roles, deactivate users, list and revoke devices, and revoke a user's sessions. Manager and worker cannot administer these resources. Tenant scope comes from the verified session. The last active admin is protected under an organization row lock. New accounts get a password directly from the admin over TLS; there is no plaintext delivery or simulated email reset. Users change their own password with the current one, invalidating all other sessions while retaining their current session. A revoked device cannot reuse its UUID for login; a future client must register a new random UUID.
+
+### First admin bootstrap
+
+After migrations, pass `BOOTSTRAP_ORGANIZATION_NAME`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` (12–128 characters) and `DATABASE_URL` securely to `npm run bootstrap:admin`. No default credentials exist. The command creates a new organization or adds the first user to an existing empty organization with that exact name. It refuses ambiguity or any existing users and serializes bootstrap in PostgreSQL. Supply credentials through your secret manager or a protected environment, not a shell history or repository. For Compose, with the service running and migrations applied, run `docker compose run --rm -e BOOTSTRAP_ORGANIZATION_NAME -e BOOTSTRAP_ADMIN_EMAIL -e BOOTSTRAP_ADMIN_PASSWORD api npm run bootstrap:admin` with the variables supplied securely in your terminal environment. Avoid creating a development seed organization with duplicate names.
+
+### API and limitations
+
+[Stage 2 API contract](API_STAGE2.md) describes requests, responses, error codes and token handling. Login has a separate per-instance IP limiter (`LOGIN_RATE_LIMIT_MAX`, default 10 attempts per 15 minutes); general API rate limiting remains active. Production with multiple replicas needs shared rate limiting or enforcement at the edge. TLS is required for any nonlocal API deployment. Configure `CORS_ORIGINS` for allowed browser origins. The refresh token is a bearer secret and should be stored securely by a future client; Stage 2 does not connect Android or migrate its existing users. Audit logs record action, actor, target and safe metadata without credentials.
+
+Migration tests first apply Stage 1 alone, verify it, apply Stage 2, test the expanded schema, roll Stage 2 back to Stage 1, roll back Stage 1 and reapply both. Run against a disposable PostgreSQL 17 database using `npm run migrate:test`. `npm run test:integration` tests the real database. CI also checks Docker build and Compose health. The Android 0.6.2 workflow remains separate.
+
+Open architecture question before Stage 3: Is `Project` the construction object, or should `Project` and `Object` be distinct entities? No `objects` table has been added. Work markup remains deferred to a separate financial/Android stage.

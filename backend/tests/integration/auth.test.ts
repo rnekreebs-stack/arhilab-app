@@ -1,0 +1,109 @@
+import { after, before, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import type { Server } from 'node:http';
+import { pool } from '../../src/database/pool.js';
+import { createApp } from '../../src/app.js';
+import { hashPassword, hashToken } from '../../src/services/security.js';
+let server: Server, base: string;
+const orgA=randomUUID(),orgB=randomUUID(),adminA=randomUUID(),adminB=randomUUID(),manager=randomUUID(),worker=randomUUID();
+const password='correct horse battery 22',nextPassword='another correct horse 33';
+const deviceA=randomUUID(),deviceB=randomUUID();
+type Tokens={accessToken:string;refreshToken:string;sessionId:string;deviceId:string;user:{id:string;organizationId:string;role:string}};
+async function api(path:string,method='GET',body?:object,token?:string) {
+  const response=await fetch(base+path,{method,headers:{ ...(body ? {'content-type':'application/json'} : {}),...(token ? {authorization:`Bearer ${token}`} : {}) },...(body ? {body:JSON.stringify(body)} : {})});
+  const text=await response.text();
+  return { status:response.status,body:text ? JSON.parse(text) as Record<string,unknown> : {},raw:text };
+}
+async function login(org:string,email:string,pass=password,device=randomUUID()) {
+  return api('/api/v1/auth/login','POST',{organizationId:org,email,password:pass,deviceId:device,deviceLabel:'Test device'});
+}
+async function createUser(org:string,id:string,email:string,role:string) {
+  await pool.query('INSERT INTO users(id,organization_id,email,display_name,role,password_hash) VALUES($1,$2,$3,$4,$5,$6)',[id,org,email,email,role,await hashPassword(password)]);
+}
+before(async () => {
+  await pool.query('INSERT INTO organizations(id,name) VALUES($1,$2),($3,$4)',[orgA,'Auth test A '+orgA,orgB,'Auth test B '+orgB]);
+  await createUser(orgA,adminA,'admin-a-'+orgA+'@test.example','admin');
+  await createUser(orgB,adminB,'admin-b-'+orgB+'@test.example','admin');
+  await createUser(orgA,manager,'manager-'+orgA+'@test.example','manager');
+  await createUser(orgA,worker,'worker-'+orgA+'@test.example','worker');
+  server=createApp().listen(0,'127.0.0.1');
+  await new Promise<void>(resolve=>server.once('listening',resolve));
+  const addr=server.address(); if (!addr || typeof addr==='string') throw Error('Missing port'); base=`http://127.0.0.1:${addr.port}`;
+});
+after(async () => { if(server) await new Promise<void>(resolve=>server.close(()=>resolve())); await pool.end(); });
+test('login, role context, tenant isolation, rotation and revocation',async () => {
+  const emailA='admin-a-'+orgA+'@test.example',emailB='admin-b-'+orgB+'@test.example';
+  const wrong=await login(orgA,emailA,'wrong',deviceA),unknown=await login(orgA,'unknown@test.example','wrong',randomUUID());
+  assert.equal(wrong.status,401); assert.equal(unknown.status,401); assert.equal(wrong.raw,unknown.raw.replace(/"requestId":"[^"]+"/, '"requestId":"'+String(wrong.body.requestId)+'"'));
+  const blockedUser=randomUUID(); await createUser(orgA,blockedUser,'blocked-'+orgA+'@test.example','worker');
+  await pool.query('UPDATE users SET active=false WHERE id=$1',[blockedUser]);
+  assert.equal((await login(orgA,'blocked-'+orgA+'@test.example')).status,401);
+  const a=await login(orgA,emailA,password,deviceA),b=await login(orgB,emailB,password,deviceB);
+  assert.equal(a.status,200); assert.equal(b.status,200);
+  const at=a.body as unknown as Tokens, bt=b.body as unknown as Tokens;
+  assert.equal(at.user.organizationId,orgA);
+  assert.equal((await api('/api/v1/users','GET',undefined,at.accessToken)).status,200);
+  assert.equal((await api('/api/v1/users/'+adminB,'GET',undefined,at.accessToken)).status,404);
+  assert.equal((await api('/api/v1/users/'+adminB,'PATCH',{role:'worker'},at.accessToken)).status,404);
+  assert.equal((await api('/api/v1/users/'+adminB+'/devices','GET',undefined,at.accessToken)).status,404);
+  assert.equal((await api('/api/v1/devices/'+deviceB+'/revoke','POST',undefined,at.accessToken)).status,404);
+  assert.equal((await api('/api/v1/users/'+adminA,'PATCH',{role:'worker'},at.accessToken)).status,409);
+  assert.equal((await api('/api/v1/users/'+adminA,'PATCH',{active:false},at.accessToken)).status,409);
+  const m=await login(orgA,'manager-'+orgA+'@test.example'); const w=await login(orgA,'worker-'+orgA+'@test.example');
+  assert.equal(m.status,200); assert.equal(w.status,200);
+  for (const token of [(m.body as unknown as Tokens).accessToken,(w.body as unknown as Tokens).accessToken]) {
+    assert.equal((await api('/api/v1/users','GET',undefined,token)).status,403);
+    assert.equal((await api('/api/v1/devices/'+deviceB+'/revoke','POST',undefined,token)).status,403);
+  }
+  assert.equal((await api('/api/v1/users','POST',{organizationId:orgB,email:'hacker@test.example',displayName:'X',role:'admin',password},at.accessToken)).status,400);
+  const created=await api('/api/v1/users','POST',{email:'second-'+orgA+'@test.example',displayName:'Second',role:'admin',password},at.accessToken);
+  assert.equal(created.status,201); const second=String(created.body.id);
+  assert.equal((await api('/api/v1/users/'+adminA,'PATCH',{role:'manager'},at.accessToken)).status,200);
+  assert.equal((await api('/api/v1/users','GET',undefined,at.accessToken)).status,401);
+  const secondLogin=await login(orgA,'second-'+orgA+'@test.example'); assert.equal(secondLogin.status,200); const st=secondLogin.body as unknown as Tokens;
+  assert.equal((await api('/api/v1/users/'+adminA,'PATCH',{role:'admin',active:true},st.accessToken)).status,200);
+  const fresh=await login(orgA,emailA,password,randomUUID()); const ft=fresh.body as unknown as Tokens;
+  const rotation=await api('/api/v1/auth/refresh','POST',{refreshToken:ft.refreshToken}); assert.equal(rotation.status,200);
+  const rotated=rotation.body as unknown as Tokens;
+  assert.equal((await api('/api/v1/users','GET',undefined,ft.accessToken)).status,401);
+  const reuse=await api('/api/v1/auth/refresh','POST',{refreshToken:ft.refreshToken}); assert.equal(reuse.status,401);
+  assert.equal((await api('/api/v1/auth/refresh','POST',{refreshToken:rotated.refreshToken})).status,401);
+  const logout=await api('/api/v1/auth/logout','POST',undefined,st.accessToken); assert.equal(logout.status,204);
+  assert.equal((await api('/api/v1/auth/logout','POST',undefined,st.accessToken)).status,401);
+  assert.equal((await api('/api/v1/auth/refresh','POST',{refreshToken:st.refreshToken})).status,401);
+  const forChange=await login(orgA,emailA,password,randomUUID()); const ct=forChange.body as unknown as Tokens;
+  const other=await login(orgA,emailA,password,randomUUID()); const ot=other.body as unknown as Tokens;
+  assert.equal((await api('/api/v1/auth/change-password','POST',{currentPassword:password,newPassword:nextPassword},ct.accessToken)).status,204);
+  assert.equal((await api('/api/v1/auth/refresh','POST',{refreshToken:ot.refreshToken})).status,401);
+  assert.equal((await login(orgA,emailA,password)).status,401);
+  assert.equal((await login(orgA,emailA,nextPassword)).status,200);
+  assert.equal((await api('/api/v1/users','GET',undefined,ct.accessToken)).status,200);
+  const list=await api('/api/v1/users/'+adminB+'/devices','GET',undefined,ct.accessToken); assert.equal(list.status,404);
+  const own=await api('/api/v1/users/'+adminA+'/devices','GET',undefined,ct.accessToken); assert.equal(own.status,200);
+  assert.ok((own.body.devices as object[]).length >= 3);
+  assert.equal((await api('/api/v1/devices/'+deviceA+'/revoke','POST',undefined,ct.accessToken)).status,204);
+  assert.equal((await api('/api/v1/auth/refresh','POST',{refreshToken:at.refreshToken})).status,401);
+  assert.equal((await api('/api/v1/users','GET',undefined,bt.accessToken)).status,200);
+  assert.equal((await api('/api/v1/auth/logout-all','POST',undefined,ct.accessToken)).status,204);
+  assert.equal((await api('/api/v1/users','GET',undefined,ct.accessToken)).status,401);
+  const auditRows=await pool.query<{action:string}>('SELECT action FROM audit_logs WHERE organization_id=$1',[orgA]);
+  for(const action of ['login.failure','login.success','refresh.success','refresh.reuse','logout','password.changed','employee.created','employee.role_changed','device.registered','device.revoked','sessions.revoked_all']) assert.ok(auditRows.rows.some(row=>row.action===action),action);
+  assert.equal((await pool.query('SELECT token_hash FROM refresh_credentials WHERE token_hash=$1',[hashToken(ft.refreshToken)])).rowCount,1);
+  assert.equal((await pool.query('SELECT id FROM users WHERE id=$1',[second])).rowCount,1);
+});
+test('expired tokens, revoked device, and concurrent admin changes',async () => {
+  const email='admin-a-'+orgA+'@test.example';
+  const r=await login(orgA,email,nextPassword),t=r.body as unknown as Tokens;
+  await pool.query('UPDATE sessions SET access_expires_at=now()-interval \'1 second\' WHERE id=$1',[t.sessionId]);
+  assert.equal((await api('/api/v1/users','GET',undefined,t.accessToken)).status,401);
+  assert.equal((await api('/api/v1/users','GET',undefined,'not-a-token')).status,401);
+  await pool.query('UPDATE refresh_credentials SET expires_at=now()-interval \'1 second\' WHERE token_hash=$1',[hashToken(t.refreshToken)]);
+  assert.equal((await api('/api/v1/auth/refresh','POST',{refreshToken:t.refreshToken})).status,401);
+  const admin1=await login(orgA,email,nextPassword),one=admin1.body as unknown as Tokens;
+  const admin2=await login(orgA,'second-'+orgA+'@test.example'),two=admin2.body as unknown as Tokens;
+  const results=await Promise.all([api('/api/v1/users/'+adminA,'PATCH',{role:'worker'},one.accessToken),api('/api/v1/users/'+String(two.user.id),'PATCH',{role:'worker'},two.accessToken)]);
+  assert.equal(results.filter(x=>x.status===200).length,1);
+  const count=await pool.query<{n:string}>("SELECT count(*)::text n FROM users WHERE organization_id=$1 AND role='admin' AND active",[orgA]);
+  assert.equal(count.rows[0]?.n,'1');
+});

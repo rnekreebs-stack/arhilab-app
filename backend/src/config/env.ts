@@ -10,6 +10,7 @@ const schema = z.object({
   BODY_LIMIT: z.string().regex(/^\d+(b|kb|mb)$/i).default('1mb'),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+  LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
   BACKEND_VERSION: z.string().default('0.7.0-dev.1'),
 });
