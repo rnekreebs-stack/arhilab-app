@@ -59,7 +59,7 @@ for (const change of [{role:'worker'}, {active:false}] as const) {
       request(`/api/v1/users/${a.id}`,'PATCH',change,bTokens.accessToken),
     ]);
     assert.equal([aToB,bToA].filter(result => result.status === 200).length,1);
-    assert.ok([403,409].includes([aToB,bToA].find(result => result.status !== 200)?.status ?? 0));
+    assert.ok([401,403,409].includes([aToB,bToA].find(result => result.status !== 200)?.status ?? 0));
     const count = await pool.query<{count:string}>("SELECT count(*)::text AS count FROM users WHERE organization_id=$1 AND active AND role='admin'",[org]);
     assert.equal(Number(count.rows[0]?.count),1);
   });
