@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../database/pool.js';
 import { HttpError } from '../middleware/errors.js';
@@ -16,6 +16,7 @@ export type SyncResult = {
   currentRevision?:number;
   sequence?:string;
   originalStatus?:string;
+  conflictId?:string;
 };
 function requestHash(op: SyncOperation) { return createHash('sha256').update(canonical(op)).digest('hex'); }
 const rejected=(op:SyncOperation,errorClass:NonNullable<SyncResult['errorClass']>,code:string):SyncResult=>({operationId:op.operationId,status:'rejected',errorClass,code});
@@ -46,8 +47,8 @@ async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise
   const current=found.rows[0];
   if (current && current.organization_id !== ctx.organizationId) return {result:rejected(op,'authorization','entity_not_available')};
   if (op.operationType==='create') {
-    if (current) return {result:conflict(op,Number(current.revision))};
-    if (op.baseRevision!==0) return {result:conflict(op,0)};
+    if (current) return {result:conflict(op,Number(current.revision)),state:snapshot(current,spec.fields)};
+    if (op.baseRevision!==0) return {result:conflict(op,0),state:{id:op.entityId,revision:0,deletedAt:null}};
     const entries=Object.entries(payload).map(([name,value])=>[spec.fields[name],value] as const);
     const columns=['id','organization_id','revision',...entries.map(([column])=>column)];
     const values=[op.entityId,ctx.organizationId,1,...entries.map(([,value])=>value)];
@@ -56,7 +57,7 @@ async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise
     return {result:{operationId:op.operationId,status:'applied',resultingRevision:1},state:snapshot(insert.rows[0],spec.fields),table:spec.table};
   }
   if (!current) return {result:rejected(op,'authorization','entity_not_available')};
-  if (Number(current.revision)!==op.baseRevision) return {result:conflict(op,Number(current.revision))};
+  if (Number(current.revision)!==op.baseRevision) return {result:conflict(op,Number(current.revision)),state:snapshot(current,spec.fields)};
   if (current.deleted_at) return {result:rejected(op,'conflict','already_deleted')};
   const entries=Object.entries(payload).map(([name,value])=>[spec.fields[name],value] as const);
   const assignments=entries.map(([column],i)=>`${column}=$${i+1}`);
@@ -91,6 +92,14 @@ export async function applyOperation(ctx:Identity,op:SyncOperation):Promise<Sync
       result.resultingRevision ?? null,result.status==='rejected'?'failed':result.status,op.idempotencyKey,op.occurredAt,hash,
       JSON.stringify(result),result.status==='conflict'?JSON.stringify({clientBaseRevision:op.baseRevision,serverCurrentRevision:result.currentRevision}):null,
     ]);
+    if(result.status==='conflict' && state) {
+      result.conflictId=randomUUID();
+      await client.query(`INSERT INTO sync_conflicts(id,organization_id,entity_type,entity_id,source_device_id,source_user_id,source_sync_operation_id,base_revision,server_revision_at_conflict,client_operation_type,client_proposal,server_snapshot)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[
+        result.conflictId,ctx.organizationId,op.entityType,op.entityId,ctx.deviceId,ctx.userId,op.operationId,op.baseRevision,result.currentRevision,op.operationType,JSON.stringify(op.payload),JSON.stringify(state),
+      ]);
+      await client.query('UPDATE sync_operations SET result=$1 WHERE id=$2',[JSON.stringify(result),op.operationId]);
+    }
     if (result.status!=='applied' || !state) return result;
     const cursor=await client.query<{sync_cursor:string}>('UPDATE organizations SET sync_cursor=sync_cursor+1 WHERE id=$1 RETURNING sync_cursor',[ctx.organizationId]);
     const sequence=cursor.rows[0]?.sync_cursor;
@@ -101,6 +110,19 @@ export async function applyOperation(ctx:Identity,op:SyncOperation):Promise<Sync
     await client.query('UPDATE sync_operations SET change_sequence=$1,result=$2,updated_at=now() WHERE id=$3',[sequence,JSON.stringify(result),op.operationId]);
     return result;
   });
+}
+export async function applyResolution(client:PoolClient,ctx:Identity,entityType:string,entityId:string,kind:'update'|'delete',payload:Record<string,unknown>,baseRevision:number) {
+  const op:SyncOperation={operationId:randomUUID(),idempotencyKey:randomUUID(),entityType,entityId,operationType:kind,baseRevision,payload,occurredAt:new Date().toISOString()};
+  const {result,state}=await mutation(client,ctx,op);
+  if(result.status!=='applied'||!state) throw new HttpError(409,'Resolution stale','resolution_stale');
+  await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'applied',$9,1,$10,$11,$12)`,[op.operationId,ctx.organizationId,ctx.deviceId,entityType,entityId,kind,baseRevision,result.resultingRevision,op.idempotencyKey,op.occurredAt,requestHash(op),JSON.stringify(result)]);
+  const cursor=await client.query<{sync_cursor:string}>('UPDATE organizations SET sync_cursor=sync_cursor+1 WHERE id=$1 RETURNING sync_cursor',[ctx.organizationId]);
+  const sequence=cursor.rows[0]?.sync_cursor;
+  await client.query(`INSERT INTO sync_changes(organization_id,sequence,entity_type,entity_id,revision,operation_type,snapshot,source_device_id,sync_operation_id)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[ctx.organizationId,sequence,entityType,entityId,result.resultingRevision,kind,JSON.stringify(state),ctx.deviceId,op.operationId]);
+  await client.query('UPDATE sync_operations SET change_sequence=$1,result=$2 WHERE id=$3',[sequence,JSON.stringify({...result,sequence}),op.operationId]);
+  return result.resultingRevision;
 }
 export async function pullChanges(ctx:Identity,cursor:string,limit:number) {
   const org=await pool.query<{sync_cursor:string}>('SELECT sync_cursor FROM organizations WHERE id=$1',[ctx.organizationId]);

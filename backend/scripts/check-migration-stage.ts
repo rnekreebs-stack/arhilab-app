@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { pool } from '../src/database/pool.js';
 
 const stage = Number(process.argv[2]);
-if (!Number.isInteger(stage) || stage < 0 || stage > 4) throw Error('Invalid migration stage');
+if (!Number.isInteger(stage) || stage < 0 || stage > 5) throw Error('Invalid migration stage');
 const requirements = [
   ['organizations','TABLE',1],['users','TABLE',1],['sync_operations','TABLE',1],
   ['sessions','TABLE',2],['refresh_credentials','TABLE',2],
@@ -13,6 +13,7 @@ const requirements = [
   ['sync_operations.request_hash','COLUMN',4],['sync_operations.result','COLUMN',4],
   ['sync_operations.change_sequence','COLUMN',4],['sync_changes_entity','INDEX',4],
   ['sync_changes_pkey','INDEX',4],['sync_changes_organization_id_sync_operation_id_key','INDEX',4],
+  ['sync_conflicts','TABLE',5],['sync_conflicts_listing','INDEX',5],['sync_conflicts_entity','INDEX',5],
 ] as const;
 try {
   for (const [name,kind,fromStage] of requirements) {
@@ -28,6 +29,10 @@ try {
   if (stage >= 4) {
     const constraints=await pool.query("SELECT conname FROM pg_constraint WHERE conrelid='sync_changes'::regclass AND contype='f'");
     assert.ok(constraints.rows.length >= 3,'Stage 3 change feed tenant and operation references');
+  }
+  if (stage >= 5) {
+    const constraints=await pool.query("SELECT 1 FROM pg_constraint WHERE conrelid='sync_conflicts'::regclass AND contype='f'");
+    assert.ok(constraints.rows.length>=4,'Conflict foreign keys missing');
   }
   console.log(`Migration stage ${stage} schema verified`);
 } finally { await pool.end(); }
