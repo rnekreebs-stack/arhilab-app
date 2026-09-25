@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: arhilab
+      POSTGRES_USER: arhilab
+      POSTGRES_PASSWORD: local-development-only
+    ports:
+      - "5432:5432"
+    volumes:
+      - arhilab_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arhilab -d arhilab"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  api:
+    build:
+      context: .
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://arhilab:local-development-only@db:5432/arhilab
+      LOG_LEVEL: info
+      CORS_ORIGINS: http://localhost:3000
+      BODY_LIMIT: 1mb
+      RATE_LIMIT_WINDOW_MS: 60000
+      RATE_LIMIT_MAX: 120
+      BACKEND_VERSION: 0.7.0-dev.1
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  arhilab_postgres_data:
