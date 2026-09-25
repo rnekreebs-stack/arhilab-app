@@ -26,6 +26,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://arhilab:local-ci-only@localhost:5432/arhilab_test
       NODE_ENV: test
+      LOGIN_RATE_LIMIT_MAX: 100
     defaults:
       run:
         working-directory: backend

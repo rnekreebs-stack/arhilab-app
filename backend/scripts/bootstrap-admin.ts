@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { hashPassword, transaction } from '../src/services/security.js';
+import { pool } from '../src/database/pool.js';
 const input=z.object({ BOOTSTRAP_ORGANIZATION_NAME:z.string().trim().min(1),BOOTSTRAP_ADMIN_EMAIL:z.email(),BOOTSTRAP_ADMIN_PASSWORD:z.string().min(12).max(128) }).parse(process.env);
 const hash=await hashPassword(input.BOOTSTRAP_ADMIN_PASSWORD);
+try {
 const organizationId=await transaction(async client => {
   await client.query('SELECT pg_advisory_xact_lock($1)',[172907]);
   const found=await client.query<{id:string}>('SELECT id FROM organizations WHERE name=$1 FOR UPDATE',[input.BOOTSTRAP_ORGANIZATION_NAME]);
@@ -16,4 +18,4 @@ const organizationId=await transaction(async client => {
   return orgId;
 });
 console.log(`Organization initialized: ${organizationId}`);
-await import('../src/database/pool.js').then(({pool})=>pool.end());
+} finally { await pool.end(); }
