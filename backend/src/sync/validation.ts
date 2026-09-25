@@ -8,7 +8,7 @@ export const operationSchema = z.strictObject({
   baseRevision:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   payload:z.unknown(),
   occurredAt:z.iso.datetime(),
-});
+}).refine(value=>Object.prototype.hasOwnProperty.call(value,'payload'),{message:'Missing payload'});
 export type SyncOperation = z.infer<typeof operationSchema>;
 export const pushSchema=z.strictObject({operations:z.array(operationSchema).min(1).max(50)});
 export const pullSchema=z.strictObject({

@@ -108,6 +108,129 @@ test('concurrent duplicate and competing devices never double-apply or overwrite
   assert.equal((await pool.query<{revision:string}>('SELECT revision FROM materials WHERE id=$1',[id])).rows[0]?.revision,'3');
 });
 
+test('all seven entity types create, update and tombstone with stable UUID and one feed event per mutation',async()=>{
+  const project=randomUUID(),estimate=randomUUID(),assignee=worker;
+  const entities=[
+    {type:'project',id:project,create:{name:'Matrix project'},update:{name:'Matrix revised'}},
+    {type:'estimate',id:estimate,create:{projectId:project,name:'Matrix estimate'},update:{name:'Estimate revised'}},
+    {type:'estimateItem',id:randomUUID(),create:{estimateId:estimate,title:'Work',quantity:'2.25'},update:{quantity:'3.5'}},
+    {type:'material',id:randomUUID(),create:{name:'Wood'},update:{unit:'m3'}},
+    {type:'stage',id:randomUUID(),create:{projectId:project,name:'Ground',position:0},update:{position:2}},
+    {type:'payment',id:randomUUID(),create:{projectId:project,amount:'99.00',currency:'USD'},update:{amount:'100.25'}},
+    {type:'task',id:randomUUID(),create:{projectId:project,title:'Measure',status:'open',assigneeId:assignee},update:{status:'done'}},
+  ];
+  const creations=await push(entities.map(e=>op(e.type,e.id,'create',0,e.create)),accessA2);
+  assert.deepEqual(creations.results.map(r=>r.resultingRevision),Array(7).fill(1));
+  const updates=await push(entities.map(e=>op(e.type,e.id,'update',1,e.update)),accessA2);
+  assert.deepEqual(updates.results.map(r=>r.resultingRevision),Array(7).fill(2));
+  const deletions=await push([...entities].reverse().map(e=>op(e.type,e.id,'delete',2,{})),accessA2);
+  assert.deepEqual(deletions.results.map(r=>r.resultingRevision),Array(7).fill(3));
+  const changes=await pool.query<{entity_type:string;entity_id:string;revision:string;operation_type:string;snapshot:{id:string;revision:number;deletedAt:string|null};source_device_id:string;sync_operation_id:string}>(
+    'SELECT entity_type,entity_id,revision,operation_type,snapshot,source_device_id,sync_operation_id FROM sync_changes WHERE organization_id=$1 AND entity_id=ANY($2) ORDER BY sequence',[orgA,entities.map(e=>e.id)]);
+  assert.equal(changes.rowCount,21);
+  for(const e of entities) {
+    const records=changes.rows.filter(r=>r.entity_id===e.id);
+    assert.deepEqual(records.map(r=>r.revision),['1','2','3']);
+    assert.deepEqual(records.map(r=>r.operation_type),['create','update','delete']);
+    assert.ok(records.every(r=>r.entity_type===e.type&&r.snapshot.id===e.id&&r.source_device_id===deviceA2&&r.sync_operation_id));
+    assert.equal(records[2]?.snapshot.revision,3);
+    assert.ok(records[2]?.snapshot.deletedAt);
+    const stale=await push([op(e.type,e.id,'delete',2,{})],accessA2);
+    assert.equal(stale.results[0]?.status,'conflict');
+    const resurrect=await push([op(e.type,e.id,'update',3,e.update)],accessA2);
+    assert.equal(resurrect.results[0]?.code,'already_deleted');
+  }
+  const pull=await request('/api/v1/sync/pull?cursor=0&limit=100','GET',undefined,accessA2);
+  assert.equal(pull.status,200);
+  const feed=pull.body.changes as Array<{entityId:string;revision:number;snapshot:{deletedAt:string|null}}>;
+  for(const e of entities) assert.equal(feed.filter(x=>x.entityId===e.id&&x.revision===3&&!!x.snapshot.deletedAt).length,1);
+});
+
+test('foreign references reject other-tenant, absent and tombstoned parents and inactive assignees',async()=>{
+  const ownProject=randomUUID(),ownEstimate=randomUUID(),deletedProject=randomUUID(),deletedEstimate=randomUUID();
+  const otherProject=randomUUID(),otherEstimate=randomUUID(),otherUser=adminB;
+  assert.equal((await push([op('project',ownProject,'create',0,{name:'Own'}),op('estimate',ownEstimate,'create',0,{projectId:ownProject,name:'Own estimate'}),op('project',deletedProject,'create',0,{name:'Gone'}),op('estimate',deletedEstimate,'create',0,{projectId:ownProject,name:'Gone'})],accessA2)).results.length,4);
+  assert.equal((await push([op('project',otherProject,'create',0,{name:'Other'}),op('estimate',otherEstimate,'create',0,{projectId:otherProject,name:'Other estimate'})],accessB)).results[1]?.status,'applied');
+  assert.equal((await push([op('project',deletedProject,'delete',1,{}),op('estimate',deletedEstimate,'delete',1,{})],accessA2)).results[1]?.status,'applied');
+  const candidates=[
+    ['estimate',{projectId:otherProject,name:'Other'}],['estimate',{projectId:deletedProject,name:'Deleted'}],['estimate',{projectId:randomUUID(),name:'Absent'}],
+    ['estimateItem',{estimateId:otherEstimate,title:'Other',quantity:'1'}],['estimateItem',{estimateId:deletedEstimate,title:'Deleted',quantity:'1'}],['estimateItem',{estimateId:randomUUID(),title:'Absent',quantity:'1'}],
+    ['stage',{projectId:otherProject,name:'Other',position:0}],['payment',{projectId:otherProject,amount:'1',currency:'USD'}],
+    ['task',{projectId:otherProject,title:'Other',status:'open'}],['task',{projectId:ownProject,assigneeId:otherUser,title:'Other',status:'open'}],
+  ] as const;
+  for(const [type,payload] of candidates) {
+    const result=await push([op(type,randomUUID(),'create',0,payload)],accessA2);
+    assert.equal(result.results[0]?.code,'invalid_reference',type);
+  }
+  const ownTask=randomUUID();
+  assert.equal((await push([op('task',ownTask,'create',0,{projectId:ownProject,title:'Own',status:'open'})],accessA2)).results[0]?.status,'applied');
+  assert.equal((await push([op('task',ownTask,'update',1,{projectId:otherProject})],accessA2)).results[0]?.code,'invalid_reference');
+  assert.equal((await push([op('task',ownTask,'update',1,{assigneeId:otherUser})],accessA2)).results[0]?.code,'invalid_reference');
+});
+
+test('idempotency identity, canonical payload and operation ID collisions',async()=>{
+  const id=randomUUID(),create=op('material',id,'create',0,{name:'Stable',unit:'m'});
+  assert.equal((await push([create],accessA2)).results[0]?.status,'applied');
+  const reordered={...create,payload:{unit:'m',name:'Stable'}};
+  assert.equal((await push([reordered],accessA2)).results[0]?.status,'duplicate');
+  for(const changed of [
+    {...create,entityId:randomUUID()}, {...create,entityType:'project'}, {...create,operationType:'update'},
+    {...create,baseRevision:1}, {...create,payload:{name:'Different',unit:'m'}},
+  ]) assert.equal((await push([changed],accessA2)).results[0]?.code,'idempotency_key_reused_with_different_request');
+  assert.equal((await push([{...create,idempotencyKey:randomUUID(),entityId:randomUUID()}],accessA2)).results[0]?.code,'operation_id_reused');
+  assert.equal((await pool.query<{revision:string}>('SELECT revision FROM materials WHERE id=$1',[id])).rows[0]?.revision,'1');
+  assert.equal((await pool.query('SELECT 1 FROM sync_changes WHERE sync_operation_id=$1',[create.operationId])).rowCount,1);
+});
+
+test('batch and envelope validation, roles, password-change gate and stable HTTP errors',async()=>{
+  const missing=await request('/api/v1/sync/pull');
+  assert.equal(missing.status,401);assert.equal(missing.body.code,'unauthorized');assert.equal(missing.body.errorClass,'authorization');
+  const project=randomUUID(),create=op('project',project,'create',0,{name:'Validated'});
+  for(const envelope of [
+    {operations:[]},{operations:[{...create,unexpected:true}]},{operations:[{...create,payload:{name:'X',revision:10}}]},
+    {operations:[{operationId:create.operationId,idempotencyKey:create.idempotencyKey,entityId:create.entityId,entityType:create.entityType,operationType:create.operationType,baseRevision:create.baseRevision,occurredAt:create.occurredAt}]},
+    {operations:Array.from({length:51},()=>op('material',randomUUID(),'create',0,{name:'Over limit'}))},
+    {operations:[create],organizationId:orgB},
+  ]) {
+    const response=await request('/api/v1/sync/push','POST',envelope,accessA2);
+    if ('organizationId' in envelope || envelope.operations.length!==1 || 'unexpected' in envelope.operations[0]! || !('payload' in envelope.operations[0]!)) assert.equal(response.status,400);
+    else assert.equal((response.body.results as Array<{code:string}>)[0]?.code,'invalid_payload');
+  }
+  const fifty=Array.from({length:50},()=>op('material',randomUUID(),'create',0,{name:'Batch'}));
+  assert.equal((await push(fifty,accessA2)).results.filter(r=>r.status==='applied').length,50);
+  for(const role of [accessManager,accessWorker]) {
+    assert.equal((await request('/api/v1/sync/pull','GET',undefined,role)).status,200);
+    assert.equal((await push([op('material',randomUUID(),'create',0,{name:'Denied'})],role)).status,403);
+  }
+  for(const query of ['cursor=-1','cursor=01','limit=0','limit=101','limit=x']) assert.equal((await request('/api/v1/sync/pull?'+query,'GET',undefined,accessA2)).status,400);
+  const newUser=randomUUID(),newDevice=randomUUID();
+  await pool.query('INSERT INTO users(id,organization_id,email,display_name,role,password_hash,must_change_password) VALUES($1,$2,$3,$4,$5,$6,true)',[newUser,orgA,newUser+'@test.example','Must change','admin',await hashPassword(password)]);
+  const initial=await login(orgA,newUser+'@test.example',newDevice);
+  assert.equal((await request('/api/v1/sync/pull','GET',undefined,initial)).status,403);
+  assert.equal((await push([op('project',randomUUID(),'create',0,{name:'Denied'})],initial)).status,403);
+});
+
+test('concurrent cursor allocation and rollback of failed change insert are atomic',async()=>{
+  const ids=Array.from({length:8},()=>randomUUID());
+  const simultaneous=await Promise.all(ids.map(id=>push([op('material',id,'create',0,{name:'Parallel'})],accessA2)));
+  assert.ok(simultaneous.every(r=>r.results[0]?.status==='applied'));
+  const rows=await pool.query<{sequence:string}>('SELECT sequence FROM sync_changes WHERE organization_id=$1 AND entity_id=ANY($2) ORDER BY sequence',[orgA,ids]);
+  assert.equal(rows.rowCount,8);
+  assert.equal(new Set(rows.rows.map(r=>r.sequence)).size,8);
+  const broken=randomUUID(),brokenOp=op('material',broken,'create',0,{name:'Must roll back'});
+  const before=await pool.query<{sync_cursor:string}>('SELECT sync_cursor FROM organizations WHERE id=$1',[orgA]);
+  // A generated UUID is safe as a DDL literal; PostgreSQL cannot bind a CHECK expression.
+  await pool.query(`ALTER TABLE sync_changes ADD CONSTRAINT test_atomicity CHECK (entity_id <> '${broken}'::uuid)`);
+  try {
+    assert.equal((await push([brokenOp],accessA2)).status,500);
+    assert.equal((await pool.query('SELECT 1 FROM materials WHERE id=$1',[broken])).rowCount,0);
+    assert.equal((await pool.query('SELECT 1 FROM sync_operations WHERE id=$1',[brokenOp.operationId])).rowCount,0);
+    assert.equal((await pool.query('SELECT 1 FROM sync_changes WHERE entity_id=$1',[broken])).rowCount,0);
+    assert.equal((await pool.query<{sync_cursor:string}>('SELECT sync_cursor FROM organizations WHERE id=$1',[orgA])).rows[0]?.sync_cursor,before.rows[0]?.sync_cursor);
+  } finally {await pool.query('ALTER TABLE sync_changes DROP CONSTRAINT test_atomicity');}
+  assert.equal((await push([brokenOp],accessA2)).results[0]?.status,'applied');
+});
+
 test('validation, tenant scope and revoked device security',async()=>{
   const foreign=randomUUID();assert.equal((await push([op('project',foreign,'create',0,{name:'Other'})],accessB)).results[0]?.status,'applied');
   for(const [operation,expected] of [

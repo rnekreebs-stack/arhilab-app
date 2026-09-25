@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import { pool } from '../src/database/pool.js';
+
+const stage = Number(process.argv[2]);
+if (!Number.isInteger(stage) || stage < 0 || stage > 4) throw Error('Invalid migration stage');
+const requirements = [
+  ['organizations','TABLE',1],['users','TABLE',1],['sync_operations','TABLE',1],
+  ['sessions','TABLE',2],['refresh_credentials','TABLE',2],
+  ['users.password_hash','COLUMN',2],['users.active','COLUMN',2],
+  ['users_organization_email_ci','INDEX',2],['sessions_user_active','INDEX',2],['refresh_session','INDEX',2],
+  ['users.must_change_password','COLUMN',3],
+  ['sync_changes','TABLE',4],['organizations.sync_cursor','COLUMN',4],
+  ['sync_operations.request_hash','COLUMN',4],['sync_operations.result','COLUMN',4],
+  ['sync_operations.change_sequence','COLUMN',4],['sync_changes_entity','INDEX',4],
+  ['sync_changes_pkey','INDEX',4],['sync_changes_organization_id_sync_operation_id_key','INDEX',4],
+] as const;
+try {
+  for (const [name,kind,fromStage] of requirements) {
+    const [table,column] = name.split('.');
+    const query = kind === 'TABLE'
+      ? "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=$1"
+      : kind === 'COLUMN'
+        ? "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name=$2"
+        : "SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname=$1";
+    const result = await pool.query(query,kind === 'COLUMN' ? [table,column] : [name]);
+    assert.equal(Boolean(result.rowCount),stage >= fromStage,`${name}: expected ${stage >= fromStage} at migration ${stage}`);
+  }
+  if (stage >= 4) {
+    const constraints=await pool.query("SELECT conname FROM pg_constraint WHERE conrelid='sync_changes'::regclass AND contype='f'");
+    assert.ok(constraints.rows.length >= 3,'Stage 3 change feed tenant and operation references');
+  }
+  console.log(`Migration stage ${stage} schema verified`);
+} finally { await pool.end(); }

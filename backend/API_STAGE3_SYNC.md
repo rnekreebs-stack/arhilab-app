@@ -30,7 +30,7 @@ References must resolve in the same organization. Users, devices, sessions, audi
 
 A valid envelope returns HTTP 200 and ordered `results[]`. Each item commits in its own transaction, in array order. Successful `applied` returns server `resultingRevision` and decimal-string `sequence`. Replayed identical operations return `duplicate`, `originalStatus` and recorded fields without another mutation. A stale base returns `conflict`, `errorClass:"conflict"`, `code:"stale_revision"`, `currentRevision`; it never overwrites the server. Invalid or unsupported items return `rejected` with `errorClass` (`validation`, `authorization`, `conflict`, `unsupported`) and stable `code`. A reused key with different request contents returns `idempotency_key_reused_with_different_request`. Revision starts at 1 and increments by one on each successful mutation, including tombstone delete.
 
-A lost batch response may follow earlier committed items; retry the same IDs/keys for *all* items. 400 invalid envelope, 401 invalid access, 403 forbidden, 413 oversized body, 429 rate limit and 5xx errors carry `errorClass` and request ID. The English error message is not the retry contract.
+A lost batch response may follow earlier committed items; retry the same IDs/keys for *all* items. 400 invalid envelope, 401 invalid access, 403 forbidden, 413 oversized body, 429 rate limit and 5xx errors carry stable `code`, `errorClass` and request ID. Authorization failures require login on 401 and are permanent on 403; 429 and 5xx are retryable. The English error message is not the retry contract.
 
 ## Pull
 
