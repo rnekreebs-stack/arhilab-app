@@ -37,6 +37,10 @@ jobs:
           echo "NODE_PATH=$GITHUB_WORKSPACE/.ci-deps/node_modules" >> "$GITHUB_ENV"
       - name: Existing tests
         run: bash arhilab/tests/run.sh
+      - name: Compile application sources
+        run: |
+          mkdir -p "$RUNNER_TEMP/arhilab-classes"
+          javac -encoding UTF-8 -source 8 -target 8 -classpath "$ANDROID_SDK_ROOT/platforms/android-35/android.jar" -d "$RUNNER_TEMP/arhilab-classes" arhilab/src/ru/arhilab/estimate/*.java
       - name: Restore permanent Debug keystore
         env:
           DEBUG_KEYSTORE_BASE64: ${{ secrets.ARHILAB_DEBUG_KEYSTORE_BASE64 }}
