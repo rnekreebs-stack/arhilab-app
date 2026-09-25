@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: arhilab
       POSTGRES_PASSWORD: local-development-only
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - arhilab_postgres_data:/var/lib/postgresql/data
     healthcheck:

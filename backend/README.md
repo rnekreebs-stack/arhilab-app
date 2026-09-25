@@ -40,7 +40,7 @@ backend/
 
 Поддерживаются `development`, `test`, `staging`, `production`. Конфигурация поступает только через environment variables.
 
-1. Скопировать `.env.example` в локальный `.env`.
+1. Скопировать `.env.example` в локальный `.env` (для Docker Compose использовать порт базы `5433`).
 2. Заменить демонстрационные значения локальными.
 3. Никогда не коммитить `.env` или credentials.
 
@@ -52,6 +52,7 @@ backend/
 cd backend
 docker compose up -d db
 npm ci
+export DATABASE_URL=postgresql://arhilab:local-development-only@localhost:5433/arhilab
 npm run migrate:up
 docker compose up -d --build api
 curl http://localhost:3000/api/v1/health
@@ -106,6 +107,10 @@ npm run build
 ```
 
 GitHub Actions дополнительно собирает Docker image, запускает API с PostgreSQL и проверяет health endpoint.
+
+Для локальных миграций с Docker Compose задайте `DATABASE_URL=postgresql://arhilab:local-development-only@localhost:5433/arhilab`. Для `migrate:test` используйте отдельную одноразовую тестовую базу: проверка выполняет `down` всех миграций.
+
+В план отдельного Android/financial этапа внесена наценка на работы: процент и сумма, быстрые значения 0/5/10/15/20/25/30%, итог клиенту, чистая прибыль и маржинальность, независимо от наценки материалов. Старым сметам потребуется `workMarkup = 0`, клиентское КП не должно показывать внутреннюю себестоимость и наценку. На Этапе 1 это не реализуется.
 
 ## Health endpoint
 
