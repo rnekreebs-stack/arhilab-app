@@ -11,6 +11,7 @@ import { checkDatabase } from './services/health.js';
 import { authRouter } from './routes/auth.js';
 import { usersRouter } from './routes/users.js';
 import { devicesRouter } from './routes/devices.js';
+import { syncRouter } from './sync/routes.js';
 
 export function createApp(db: Pick<Pool, 'query'> = pool) {
   const app = express();
@@ -29,6 +30,7 @@ export function createApp(db: Pick<Pool, 'query'> = pool) {
   app.use('/api/v1/auth',authRouter);
   app.use('/api/v1/users',usersRouter);
   app.use('/api/v1/devices',devicesRouter);
+  app.use('/api/v1/sync',syncRouter);
   app.use(notFound);
   app.use(errorHandler);
   return app;

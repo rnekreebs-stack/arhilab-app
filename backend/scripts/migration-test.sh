@@ -7,6 +7,7 @@ npm run migrate:up
 node --import tsx scripts/verify-schema.ts
 npm run migrate:up
 npm run migrate:down
+node --import tsx -e "import('pg').then(async ({default:pg})=>{const c=new pg.Client({connectionString:process.env.DATABASE_URL});await c.connect();try{const r=await c.query(\"SELECT to_regclass('public.sync_changes') AS feed, to_regclass('public.sessions') AS sessions\");if(r.rows[0].feed || !r.rows[0].sessions)throw Error('Stage 3 rollback failed')}finally{await c.end()}})"
 npm run migrate:down
 node --import tsx -e "import('pg').then(async ({default:pg})=>{const c=new pg.Client({connectionString:process.env.DATABASE_URL});await c.connect();try{const r=await c.query(\"SELECT to_regclass('public.users') AS users, to_regclass('public.sessions') AS sessions\");if(!r.rows[0].users || r.rows[0].sessions)throw Error('Stage 2 rollback failed')}finally{await c.end()}})"
 npm run migrate:down

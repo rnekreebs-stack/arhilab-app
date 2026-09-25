@@ -158,3 +158,11 @@ After migrations and `npm run build`, pass `BOOTSTRAP_ORGANIZATION_NAME`, `BOOTS
 Migration tests first apply Stage 1 alone, verify it, apply Stage 2 migrations 002 and 003, test the expanded schema, roll Stage 2 back to Stage 1, roll back Stage 1 and reapply all migrations. Run against a disposable PostgreSQL 17 database using `npm run migrate:test`. `npm run test:integration` tests the real database. CI also checks Docker build and Compose health. The Android 0.6.2 workflow remains separate.
 
 Open architecture question before Stage 3: Is `Project` the construction object, or should `Project` and `Object` be distinct entities? No `objects` table has been added. Work markup remains deferred to a separate financial/Android stage.
+
+## Stage 3 — isolated offline-first sync foundation
+
+Implemented: authenticated `/api/v1/sync/push` and `/api/v1/sync/pull`, seven allowlisted business entities, client-generated UUID identity, per-entity revisions, durable idempotency results, structured conflicts, tombstones, per-organization commit-ordered cursor and append-only `sync_changes`. Admin writes; admin/manager/worker can pull. Batch operations execute in order with separate transactions. A disposable file-backed client simulator and retry helper test offline queuing, lost-response replay and conflict preservation. See [Stage 3 sync API contract](API_STAGE3_SYNC.md).
+
+Migration `004_sync_foundation.cjs` applies over Stage 1 and Stage 2 without editing older migrations. `npm run migrate:test` exercises upgrade, schema and rollback on PostgreSQL 17. Applied operations, change feed and tombstones are retained.
+
+Not implemented: Stage 4 conflict decisions or UI, initial upload/migration of Android 0.6.2 data, production phone integration, photo/object storage, detailed manager/worker write permissions or retention/compaction. A future Android client must atomically store local entity changes and its queue; this stage does not modify it. The legacy encrypted-vault server remains independent.

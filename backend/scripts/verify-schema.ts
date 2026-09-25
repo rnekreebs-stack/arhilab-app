@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../src/database/pool.js';
 const tables = ['organizations','users','devices','projects','estimates','estimate_items','materials','stages','payments','tasks','photos','documents','sync_operations','audit_logs'];
-tables.push('sessions','refresh_credentials');
+tables.push('sessions','refresh_credentials','sync_changes');
 try {
   const result = await pool.query<{ table_name: string }>("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name = ANY($1)", [tables]);
   if (result.rows.length !== tables.length) throw new Error(`Expected ${tables.length} entity tables, got ${result.rows.length}`);
@@ -9,6 +9,10 @@ try {
   if (!constraints.rowCount) throw new Error('Refresh session foreign key missing');
   const indexes = await pool.query<{indexname:string}>("SELECT indexname FROM pg_indexes WHERE tablename='users' AND indexname='users_organization_email_ci'");
   if (!indexes.rowCount) throw new Error('Tenant email unique index missing');
+  const feed=await pool.query("SELECT 1 FROM pg_indexes WHERE tablename='sync_changes' AND indexname='sync_changes_pkey'");
+  if (!feed.rowCount) throw new Error('Scoped cursor index missing');
+  const cursor=await pool.query("SELECT 1 FROM information_schema.columns WHERE table_name='organizations' AND column_name='sync_cursor'");
+  if (!cursor.rowCount) throw new Error('Organization sync cursor missing');
   const a = randomUUID(), b = randomUUID(), project = randomUUID();
   await pool.query('BEGIN');
   try {

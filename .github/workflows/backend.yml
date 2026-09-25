@@ -42,7 +42,8 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:unit
       - run: npm run migrate:test
-      - run: npm run test:integration
+      - name: Stage 2 and Stage 3 PostgreSQL integration tests
+        run: npm run test:integration
       - run: npm run build
       - run: docker build -t arhilab-backend:test .
       - name: Compose health smoke test
