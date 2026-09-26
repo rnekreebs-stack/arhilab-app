@@ -37,10 +37,37 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: backend/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Compile Android application sources without signing or packaging
+        run: |
+          sdkmanager --install 'platforms;android-35'
+          mkdir -p /tmp/arhilab-f1-classes
+          javac -encoding UTF-8 -source 8 -target 8 \
+            -classpath "$ANDROID_HOME/platforms/android-35/android.jar" \
+            -d /tmp/arhilab-f1-classes arhilab/src/ru/arhilab/estimate/*.java
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test:unit
+      - name: Legacy Android calculation and F1 markup regression
+        working-directory: arhilab
+        run: |
+          node tests/calculations.cjs
+          node tests/version061.cjs
+          node tests/version062.cjs
+          node tests/tier_scenarios.cjs
+          node tests/work_markup.cjs
+          node tests/work_markup_ui_unit.cjs
+      - name: Android local encryption and photo regression
+        working-directory: arhilab
+        run: |
+          mkdir -p build/tests
+          javac -encoding UTF-8 -d build/tests src/ru/arhilab/estimate/{MaterialMarkup,BackupCrypto,PhotoStore}.java tests/{MaterialMarkupTest,StorageCryptoTest,AndroidKeystoreIvTest}.java
+          for test in MaterialMarkupTest StorageCryptoTest AndroidKeystoreIvTest; do java -cp build/tests "$test"; done
       - run: npm run migrate:test
       - name: Start local S3-compatible storage
         run: |
