@@ -101,6 +101,8 @@ test('golden 0.6.2 migration blocks currency, resumes chunks, preserves snapshot
   const outcomes=[a,b].map(r=>(r?.body.results as Array<{status:string}>)[0]?.status).sort();
   assert.deepEqual(outcomes,['applied','conflict']);
   assert.equal((await pool.query<{revision:string}>('SELECT revision FROM projects WHERE id=$1',[project])).rows[0]?.revision,'2');
+  assert.equal((await request(prefix+'/'+session+'/cancel','POST',undefined,access)).status,409);
+  assert.equal((await pool.query<{revision:string}>('SELECT revision FROM projects WHERE id=$1',[project])).rows[0]?.revision,'2');
 });
 
 test('cancelled migration never writes business rows and tenant UUID collision is hidden',async()=>{
@@ -113,7 +115,9 @@ test('cancelled migration never writes business rows and tenant UUID collision i
   const result=await request('/api/v1/migrations','POST',{id,packageHash:'f'.repeat(64),expectedChunks:1,
     sourceFormat:'Arhilab-2',sourceAppVersion:'0.6.2',sourceSchemaVersion:2,exportedAt:'2026-01-01T00:00:00.000Z'},foreign);
   assert.equal(result.status,201);
+  assert.equal((await request('/api/v1/migrations/'+id+'/chunks/0','PUT',{projects:[]},foreign)).status,200);
   assert.equal((await request('/api/v1/migrations/'+id+'/cancel','POST',undefined,foreign)).status,200);
+  assert.equal((await pool.query('SELECT 1 FROM migration_chunks WHERE session_id=$1',[id])).rowCount,0);
   assert.equal((await request('/api/v1/migrations/'+id+'/chunks/0','PUT',{projects:[]},foreign)).status,409);
   assert.equal((await request('/api/v1/migrations/'+id,'GET',undefined,access)).status,404);
   assert.equal((await pool.query<{name:string}>('SELECT name FROM materials WHERE id=$1',[existing])).rows[0]?.name,'Preserve on cancel');

@@ -175,6 +175,7 @@ migrationRouter.post('/:id/cancel',validateId,async(req,res)=>{
     if(s.status==='completed') throw new HttpError(409,'Completed migration cannot be cancelled','migration_completed');
     if(s.status==='cancelled') return {id:s.id,status:'cancelled',duplicate:true};
     // Chunks are staged; no business rows exist before explicit finalization.
+    await client.query('DELETE FROM migration_chunks WHERE session_id=$1',[s.id]);
     await client.query("UPDATE migration_sessions SET status='cancelled',updated_at=now() WHERE id=$1",[s.id]);
     await audit(client,ctx.organizationId,'migration.cancelled',ctx.userId,ctx.deviceId,'migration_session',s.id);
     return {id:s.id,status:'cancelled'};
