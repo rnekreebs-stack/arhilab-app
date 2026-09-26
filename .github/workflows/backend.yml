@@ -42,6 +42,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Compile Android application sources without signing or packaging
+        working-directory: .
         run: |
           sdk_root="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           test -n "$sdk_root"
