@@ -165,4 +165,8 @@ Implemented: authenticated `/api/v1/sync/push` and `/api/v1/sync/pull`, seven al
 
 Migration `004_sync_foundation.cjs` applies over Stage 1 and Stage 2 without editing older migrations. `npm run migrate:test` exercises upgrade, schema and rollback on PostgreSQL 17. Applied operations, change feed and tombstones are retained.
 
-Not implemented: Stage 4 conflict decisions or UI, initial upload/migration of Android 0.6.2 data, production phone integration, photo/object storage, detailed manager/worker write permissions or retention/compaction. A future Android client must atomically store local entity changes and its queue; this stage does not modify it. The legacy encrypted-vault server remains independent.
+Not implemented in the Stage 3 foundation: conflict decisions or UI, initial upload/migration of Android 0.6.2 data, production phone integration, photo/object storage, detailed manager/worker write permissions or retention/compaction. A future Android client must atomically store local entity changes and its queue; this stage does not modify it. The legacy encrypted-vault server remains independent.
+
+## Stage 4 — in progress
+
+The backend persists stale-write conflicts and exposes admin-only inspection and explicit resolution with both versions preserved, revision checks, audit records and change-feed updates. [Stage 4 contract and import analysis](API_STAGE4_MIGRATION.md) records the actual Android 0.6.2 backup format and the unresolved lossless mapping. Initial upload, migration sessions and snapshot/bootstrap remain unavailable pending a safe mapping decision. Production Android, its encrypted backup and the legacy server have not changed.

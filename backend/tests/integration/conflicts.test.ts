@@ -6,8 +6,8 @@ import { pool } from '../../src/database/pool.js';
 import { createApp } from '../../src/app.js';
 import { hashPassword } from '../../src/services/security.js';
 
-const org=randomUUID(),otherOrg=randomUUID(),admin=randomUUID(),otherAdmin=randomUUID(),manager=randomUUID(),worker=randomUUID(),password='conflict test password 123';
-let server:Server,base:string,tAdmin:string,tOther:string,tManager:string,tWorker:string;
+const org=randomUUID(),otherOrg=randomUUID(),admin=randomUUID(),secondAdmin=randomUUID(),otherAdmin=randomUUID(),manager=randomUUID(),worker=randomUUID(),password='conflict test password 123';
+let server:Server,base:string,tAdmin:string,tSecondAdmin:string,tOther:string,tManager:string,tWorker:string;
 async function call(path:string,method='GET',body?:object,token?:string) {
   const res=await fetch(base+path,{method,headers:{...(body?{'content-type':'application/json'}:{}),...(token?{authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{})});
   const text=await res.text();return {status:res.status,body:text?JSON.parse(text) as Record<string,unknown>:{}};
@@ -24,11 +24,11 @@ async function login(organizationId:string,id:string) {
 before(async()=>{
   await pool.query('INSERT INTO organizations(id,name) VALUES($1,$2),($3,$4)',[org,'Conflicts '+org,otherOrg,'Other '+otherOrg]);
   const hash=await hashPassword(password);
-  for(const [id,organizationId,role] of [[admin,org,'admin'],[otherAdmin,otherOrg,'admin'],[manager,org,'manager'],[worker,org,'worker']]) await pool.query(
+  for(const [id,organizationId,role] of [[admin,org,'admin'],[secondAdmin,org,'admin'],[otherAdmin,otherOrg,'admin'],[manager,org,'manager'],[worker,org,'worker']]) await pool.query(
     'INSERT INTO users(id,organization_id,email,display_name,role,password_hash) VALUES($1,$2,$3,$4,$5,$6)',[id,organizationId,id+'@test.example',role,role,hash]);
   server=createApp().listen(0,'127.0.0.1');await new Promise<void>(resolve=>server.once('listening',resolve));
   const address=server.address();if(!address||typeof address==='string')throw Error('Missing port');base='http://127.0.0.1:'+address.port;
-  tAdmin=await login(org,admin);tOther=await login(otherOrg,otherAdmin);tManager=await login(org,manager);tWorker=await login(org,worker);
+  tAdmin=await login(org,admin);tSecondAdmin=await login(org,secondAdmin);tOther=await login(otherOrg,otherAdmin);tManager=await login(org,manager);tWorker=await login(org,worker);
 });
 after(async()=>{if(server)await new Promise<void>(resolve=>server.close(()=>resolve()));await pool.end();});
 
@@ -47,6 +47,7 @@ test('stale requests persist both immutable snapshots once, scoped to the tenant
   assert.equal((detail.body.serverSnapshot as {name:string}).name,'Server change');
   assert.equal(detail.body.baseRevision,1);assert.equal(detail.body.serverRevisionAtConflict,2);
   assert.equal((await pool.query('SELECT id FROM sync_conflicts WHERE source_sync_operation_id=$1',[stale.operationId])).rowCount,1);
+  await assert.rejects(pool.query('UPDATE sync_conflicts SET server_snapshot=$1 WHERE id=$2',[JSON.stringify({name:'Tampered'}),conflictId]));
   assert.equal((await call('/api/v1/sync/conflicts/'+conflictId,'GET',undefined,tOther)).status,404);
   assert.equal((await call('/api/v1/sync/conflicts/'+conflictId+'/resolve','POST',{type:'keep_server',expectedRevision:2},tOther)).status,404);
   const list=await call('/api/v1/sync/conflicts?status=open&entityType=project&entityId='+id+'&limit=1','GET',undefined,tAdmin);
@@ -58,6 +59,13 @@ test('stale requests persist both immutable snapshots once, scoped to the tenant
   assert.equal((await pool.query('SELECT 1 FROM sync_changes WHERE entity_id=$1',[id])).rowCount,2);
   assert.equal((await call('/api/v1/sync/conflicts/'+conflictId,'GET',undefined,tAdmin)).body.status,'resolved');
   assert.equal((await pool.query('SELECT 1 FROM audit_logs WHERE organization_id=$1 AND entity_id=$2 AND action=$3',[org,conflictId,'conflict.resolved'])).rowCount,1);
+});
+
+test('create with nonzero base is validation, without an unresolvable conflict',async()=>{
+  const id=randomUUID(),item=op(id,'create',4,{name:'Invalid base'});
+  const response=await push(item);
+  assert.equal(response.code,'invalid_base_revision');
+  assert.equal((await pool.query('SELECT 1 FROM sync_conflicts WHERE source_sync_operation_id=$1',[item.operationId])).rowCount,0);
 });
 
 test('manual merge validates payload and apply client checks current revision',async()=>{
@@ -73,10 +81,11 @@ test('manual merge validates payload and apply client checks current revision',a
   assert.equal((await pool.query('SELECT 1 FROM sync_changes WHERE entity_id=$1 AND revision=3',[id])).rowCount,1);
   assert.equal((await call(endpoint,'POST',{type:'apply_client',expectedRevision:3},tAdmin)).body.code,'already_resolved');
   const next=await push(op(id,'update',1,{name:'Reapply'})),nextId=String(next.conflictId);
+  assert.equal((await push(op(id,'update',3,{name:'Later server update'}))).status,'applied');
   const stale=await call('/api/v1/sync/conflicts/'+nextId+'/resolve','POST',{type:'apply_client',expectedRevision:2},tAdmin);
   assert.equal(stale.status,409);assert.equal(stale.body.code,'resolution_stale');
-  const applied=await call('/api/v1/sync/conflicts/'+nextId+'/resolve','POST',{type:'apply_client',expectedRevision:3},tAdmin);
-  assert.equal(applied.status,200);assert.equal(applied.body.resultingRevision,4);
+  const applied=await call('/api/v1/sync/conflicts/'+nextId+'/resolve','POST',{type:'apply_client',expectedRevision:4},tAdmin);
+  assert.equal(applied.status,200);assert.equal(applied.body.resultingRevision,5);
   assert.equal((await pool.query<{name:string}>('SELECT name FROM projects WHERE id=$1',[id])).rows[0]?.name,'Reapply');
 });
 
@@ -85,7 +94,7 @@ test('concurrent resolution yields exactly one business mutation',async()=>{
   const c=await push(op(id,'update',1,{name:'Client'})),url='/api/v1/sync/conflicts/'+String(c.conflictId)+'/resolve';
   const [a,b]=await Promise.all([
     call(url,'POST',{type:'apply_client',expectedRevision:2},tAdmin),
-    call(url,'POST',{type:'manual_merge',expectedRevision:2,payload:{name:'Merged'}},tAdmin),
+    call(url,'POST',{type:'manual_merge',expectedRevision:2,payload:{name:'Merged'}},tSecondAdmin),
   ]);
   assert.deepEqual([a.status,b.status].sort(),[200,409]);
   assert.equal((await pool.query<{revision:string}>('SELECT revision FROM projects WHERE id=$1',[id])).rows[0]?.revision,'3');

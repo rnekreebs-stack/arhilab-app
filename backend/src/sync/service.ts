@@ -48,7 +48,7 @@ async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise
   if (current && current.organization_id !== ctx.organizationId) return {result:rejected(op,'authorization','entity_not_available')};
   if (op.operationType==='create') {
     if (current) return {result:conflict(op,Number(current.revision)),state:snapshot(current,spec.fields)};
-    if (op.baseRevision!==0) return {result:conflict(op,0),state:{id:op.entityId,revision:0,deletedAt:null}};
+    if (op.baseRevision!==0) return {result:rejected(op,'validation','invalid_base_revision')};
     const entries=Object.entries(payload).map(([name,value])=>[spec.fields[name],value] as const);
     const columns=['id','organization_id','revision',...entries.map(([column])=>column)];
     const values=[op.entityId,ctx.organizationId,1,...entries.map(([,value])=>value)];
@@ -114,6 +114,7 @@ export async function applyOperation(ctx:Identity,op:SyncOperation):Promise<Sync
 export async function applyResolution(client:PoolClient,ctx:Identity,entityType:string,entityId:string,kind:'update'|'delete',payload:Record<string,unknown>,baseRevision:number) {
   const op:SyncOperation={operationId:randomUUID(),idempotencyKey:randomUUID(),entityType,entityId,operationType:kind,baseRevision,payload,occurredAt:new Date().toISOString()};
   const {result,state}=await mutation(client,ctx,op);
+  if(result.status==='rejected' && result.code==='invalid_reference') throw new HttpError(400,'Invalid reference','invalid_reference');
   if(result.status!=='applied'||!state) throw new HttpError(409,'Resolution stale','resolution_stale');
   await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,'applied',$9,1,$10,$11,$12)`,[op.operationId,ctx.organizationId,ctx.deviceId,entityType,entityId,kind,baseRevision,result.resultingRevision,op.idempotencyKey,op.occurredAt,requestHash(op),JSON.stringify(result)]);

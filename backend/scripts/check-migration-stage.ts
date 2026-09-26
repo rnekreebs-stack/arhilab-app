@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { pool } from '../src/database/pool.js';
 
 const stage = Number(process.argv[2]);
-if (!Number.isInteger(stage) || stage < 0 || stage > 5) throw Error('Invalid migration stage');
+if (!Number.isInteger(stage) || stage < 0 || stage > 6) throw Error('Invalid migration stage');
 const requirements = [
   ['organizations','TABLE',1],['users','TABLE',1],['sync_operations','TABLE',1],
   ['sessions','TABLE',2],['refresh_credentials','TABLE',2],
@@ -34,5 +34,7 @@ try {
     const constraints=await pool.query("SELECT 1 FROM pg_constraint WHERE conrelid='sync_conflicts'::regclass AND contype='f'");
     assert.ok(constraints.rows.length>=4,'Conflict foreign keys missing');
   }
+  const immutable=await pool.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass('public.sync_conflicts') AND tgname='sync_conflicts_immutable'");
+  assert.equal(Boolean(immutable.rowCount),stage>=6,'Immutable conflict trigger mismatch');
   console.log(`Migration stage ${stage} schema verified`);
 } finally { await pool.end(); }
