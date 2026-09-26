@@ -6,6 +6,7 @@ import { createApp } from '../../src/app.js';
 import { pool } from '../../src/database/pool.js';
 import { hashPassword } from '../../src/services/security.js';
 import { packageHash,packageSchema } from '../../src/migration/package.js';
+import { snapshotForBootstrap } from '../../src/sync/snapshot.js';
 
 const org=randomUUID(),otherOrg=randomUUID(),admin=randomUUID(),foreignAdmin=randomUUID(),worker=randomUUID();
 const device=randomUUID(),secondDevice=randomUUID(),foreignDevice=randomUUID(),password='stage four fixture password 123';
@@ -104,10 +105,35 @@ test('golden 0.6.2 migration blocks currency, resumes chunks, preserves snapshot
 
 test('cancelled migration never writes business rows and tenant UUID collision is hidden',async()=>{
   const id=randomUUID();
+  const existing=randomUUID();
+  const created=await request('/api/v1/sync/push','POST',{operations:[{operationId:randomUUID(),idempotencyKey:randomUUID(),
+    entityType:'material',entityId:existing,operationType:'create',baseRevision:0,payload:{name:'Preserve on cancel'},
+    occurredAt:new Date().toISOString()}]},foreign);
+  assert.equal((created.body.results as Array<{status:string}>)[0]?.status,'applied');
   const result=await request('/api/v1/migrations','POST',{id,packageHash:'f'.repeat(64),expectedChunks:1,
     sourceFormat:'Arhilab-2',sourceAppVersion:'0.6.2',sourceSchemaVersion:2,exportedAt:'2026-01-01T00:00:00.000Z'},foreign);
   assert.equal(result.status,201);
   assert.equal((await request('/api/v1/migrations/'+id+'/cancel','POST',undefined,foreign)).status,200);
   assert.equal((await request('/api/v1/migrations/'+id+'/chunks/0','PUT',{projects:[]},foreign)).status,409);
   assert.equal((await request('/api/v1/migrations/'+id,'GET',undefined,access)).status,404);
+  assert.equal((await pool.query<{name:string}>('SELECT name FROM materials WHERE id=$1',[existing])).rows[0]?.name,'Preserve on cancel');
+});
+
+test('snapshot cursor and entities share one PostgreSQL version during a concurrent committed mutation',async()=>{
+  const id=randomUUID();
+  const create=await request('/api/v1/sync/push','POST',{operations:[{operationId:randomUUID(),idempotencyKey:randomUUID(),entityType:'material',
+    entityId:id,operationType:'create',baseRevision:0,payload:{name:'Before snapshot'},occurredAt:new Date().toISOString()}]},access);
+  assert.equal((create.body.results as Array<{status:string}>)[0]?.status,'applied');
+  const before=(await pool.query<{sync_cursor:string}>('SELECT sync_cursor FROM organizations WHERE id=$1',[org])).rows[0]?.sync_cursor;
+  const snapshot=await snapshotForBootstrap({userId:admin,organizationId:org,role:'admin',deviceId:device,
+    sessionId:randomUUID(),mustChangePassword:false},async()=>{
+    const concurrent=await request('/api/v1/sync/push','POST',{operations:[{operationId:randomUUID(),idempotencyKey:randomUUID(),entityType:'material',
+      entityId:id,operationType:'update',baseRevision:1,payload:{name:'After snapshot'},occurredAt:new Date().toISOString()}]},access2);
+    assert.equal((concurrent.body.results as Array<{status:string}>)[0]?.status,'applied');
+  });
+  assert.equal(snapshot.cursor,before);
+  const item=snapshot.entities.find(x=>x.entityId===id);
+  assert.equal(item?.revision,1);
+  assert.equal(item?.snapshot.name,'Before snapshot');
+  assert.equal((await pool.query<{name:string}>('SELECT name FROM materials WHERE id=$1',[id])).rows[0]?.name,'After snapshot');
 });

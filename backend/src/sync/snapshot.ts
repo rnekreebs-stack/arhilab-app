@@ -3,11 +3,12 @@ import { HttpError } from '../middleware/errors.js';
 import type { Identity } from '../services/security.js';
 import { entityTypes,specification } from './registry.js';
 
-export async function snapshotForBootstrap(ctx:Identity) {
+export async function snapshotForBootstrap(ctx:Identity,afterCursorRead?:()=>Promise<void>) {
   const client=await pool.connect();
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const org=await client.query<{sync_cursor:string}>('SELECT sync_cursor FROM organizations WHERE id=$1',[ctx.organizationId]);
+    if(afterCursorRead) await afterCursorRead();
     const entities:Array<{entityType:string;entityId:string;revision:number;snapshot:Record<string,unknown>}>=[];
     for(const type of entityTypes) {
       const spec=specification(type);
