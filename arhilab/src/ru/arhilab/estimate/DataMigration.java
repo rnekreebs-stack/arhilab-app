@@ -5,7 +5,7 @@ import org.json.JSONObject;
 
 /** Changes to the encrypted local data format. Never discards unknown fields. */
 final class DataMigration {
-    static final int CURRENT = 2;
+    static final int CURRENT = 3;
 
     static JSONObject migrate(JSONObject source) throws Exception {
         JSONObject data = new JSONObject(source.toString());
@@ -21,6 +21,15 @@ final class DataMigration {
                         if (!p.has(name)) p.put(name, new JSONArray());
                 }
                 version = 2;
+                data.put("schemaVersion", version);
+            }
+            if (version == 2) {
+                JSONArray projects = data.getJSONArray("projects");
+                for (int i = 0; i < projects.length(); i++) {
+                    JSONObject project = projects.getJSONObject(i);
+                    if (!project.has("workMarkupPercent")) project.put("workMarkupPercent", "0");
+                }
+                version = 3;
                 data.put("schemaVersion", version);
             }
         }
