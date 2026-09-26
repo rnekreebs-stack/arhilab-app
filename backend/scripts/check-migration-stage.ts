@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { pool } from '../src/database/pool.js';
 
 const stage = Number(process.argv[2]);
-if (!Number.isInteger(stage) || stage < 0 || stage > 6) throw Error('Invalid migration stage');
+if (!Number.isInteger(stage) || stage < 0 || stage > 7) throw Error('Invalid migration stage');
 const requirements = [
   ['organizations','TABLE',1],['users','TABLE',1],['sync_operations','TABLE',1],
   ['sessions','TABLE',2],['refresh_credentials','TABLE',2],
@@ -14,6 +14,8 @@ const requirements = [
   ['sync_operations.change_sequence','COLUMN',4],['sync_changes_entity','INDEX',4],
   ['sync_changes_pkey','INDEX',4],['sync_changes_organization_id_sync_operation_id_key','INDEX',4],
   ['sync_conflicts','TABLE',5],['sync_conflicts_listing','INDEX',5],['sync_conflicts_entity','INDEX',5],
+  ['migration_sessions','TABLE',7],['migration_chunks','TABLE',7],['migration_legacy_snapshots','TABLE',7],
+  ['migration_issues','TABLE',7],['migration_entity_mappings','TABLE',7],
 ] as const;
 try {
   for (const [name,kind,fromStage] of requirements) {
@@ -36,5 +38,7 @@ try {
   }
   const immutable=await pool.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass('public.sync_conflicts') AND tgname='sync_conflicts_immutable'");
   assert.equal(Boolean(immutable.rowCount),stage>=6,'Immutable conflict trigger mismatch');
+  const legacy=await pool.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass('public.migration_legacy_snapshots') AND tgname='legacy_snapshot_immutable'");
+  assert.equal(Boolean(legacy.rowCount),stage>=7,'Immutable legacy snapshot trigger mismatch');
   console.log(`Migration stage ${stage} schema verified`);
 } finally { await pool.end(); }

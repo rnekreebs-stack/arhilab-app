@@ -13,6 +13,7 @@ import { usersRouter } from './routes/users.js';
 import { devicesRouter } from './routes/devices.js';
 import { syncRouter } from './sync/routes.js';
 import { conflictsRouter } from './sync/conflicts.js';
+import { migrationRouter } from './migration/routes.js';
 
 export function createApp(db: Pick<Pool, 'query'> = pool) {
   const app = express();
@@ -23,6 +24,7 @@ export function createApp(db: Pick<Pool, 'query'> = pool) {
   const origins = config.CORS_ORIGINS.split(',').map(v => v.trim()).filter(Boolean);
   app.use(cors({ origin: (origin, callback) => callback(null, !origin || origins.includes(origin)) }));
   app.use(rateLimit({ windowMs: config.RATE_LIMIT_WINDOW_MS, limit: config.RATE_LIMIT_MAX, standardHeaders: 'draft-8', legacyHeaders: false, handler:rateLimitResponse }));
+  app.use('/api/v1/migrations',express.json({limit:'8mb',strict:true}));
   app.use(express.json({ limit: config.BODY_LIMIT, strict: true }));
   app.get('/api/v1/health', async (_req, res) => {
     const connected = await checkDatabase(db);
@@ -33,6 +35,7 @@ export function createApp(db: Pick<Pool, 'query'> = pool) {
   app.use('/api/v1/devices',devicesRouter);
   app.use('/api/v1/sync',syncRouter);
   app.use('/api/v1/sync/conflicts',conflictsRouter);
+  app.use('/api/v1/migrations',migrationRouter);
   app.use(notFound);
   app.use(errorHandler);
   return app;

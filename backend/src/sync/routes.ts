@@ -4,6 +4,7 @@ import { HttpError } from '../middleware/errors.js';
 import { validateBody } from '../validation/request.js';
 import { applyOperation, pullChanges } from './service.js';
 import { pushSchema, pullSchema } from './validation.js';
+import { snapshotForBootstrap } from './snapshot.js';
 export const syncRouter=Router();
 syncRouter.use(authenticate);
 syncRouter.post('/push',adminOnly,validateBody(pushSchema),async (req,res)=>{
@@ -17,4 +18,9 @@ syncRouter.get('/pull',async (req,res)=>{
   if (ctx.mustChangePassword) throw new HttpError(403,'Password change required');
   const input=pullSchema.parse(req.query);
   res.json(await pullChanges(ctx,input.cursor,input.limit));
+});
+syncRouter.get('/snapshot',async (_req,res)=>{
+  const ctx=identity(res);
+  if(ctx.mustChangePassword) throw new HttpError(403,'Password change required');
+  res.json(await snapshotForBootstrap(ctx));
 });
