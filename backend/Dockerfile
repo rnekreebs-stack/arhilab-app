@@ -10,6 +10,7 @@ FROM node:22.22.0-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup -S arhilab && adduser -S arhilab -G arhilab
+RUN mkdir /app/file-objects && chown arhilab:arhilab /app/file-objects
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist

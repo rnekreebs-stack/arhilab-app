@@ -14,6 +14,8 @@ import { devicesRouter } from './routes/devices.js';
 import { syncRouter } from './sync/routes.js';
 import { conflictsRouter } from './sync/conflicts.js';
 import { migrationRouter } from './migration/routes.js';
+import { filesRouter } from './files/routes.js';
+import { storage } from './files/storage.js';
 
 export function createApp(db: Pick<Pool, 'query'> = pool) {
   const app = express();
@@ -30,12 +32,16 @@ export function createApp(db: Pick<Pool, 'query'> = pool) {
     const connected = await checkDatabase(db);
     res.status(connected ? 200 : 503).json({ status: connected ? 'ok' : 'unavailable', apiVersion: 'v1', backendVersion: config.BACKEND_VERSION, database: connected ? 'connected' : 'unavailable', timestamp: new Date().toISOString() });
   });
+  app.get('/api/v1/health/storage',async (_req,res)=>{
+    const ready=await storage.ready();res.status(ready?200:503).json({storage:ready?'ready':'unavailable'});
+  });
   app.use('/api/v1/auth',authRouter);
   app.use('/api/v1/users',usersRouter);
   app.use('/api/v1/devices',devicesRouter);
   app.use('/api/v1/sync',syncRouter);
   app.use('/api/v1/sync/conflicts',conflictsRouter);
   app.use('/api/v1/migrations',migrationRouter);
+  app.use('/api/v1/files',filesRouter);
   app.use(notFound);
   app.use(errorHandler);
   return app;

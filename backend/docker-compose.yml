@@ -28,6 +28,12 @@ services:
       RATE_LIMIT_WINDOW_MS: 60000
       RATE_LIMIT_MAX: 120
       BACKEND_VERSION: 0.7.0-dev.1
+      STORAGE_PROVIDER: filesystem
+      STORAGE_ROOT: /app/file-objects
+      MAX_PHOTO_BYTES: 5000000
+      MAX_DOCUMENT_BYTES: 15000000
+    volumes:
+      - arhilab_file_objects:/app/file-objects
     ports:
       - "3000:3000"
     depends_on:
@@ -41,3 +47,4 @@ services:
 
 volumes:
   arhilab_postgres_data:
+  arhilab_file_objects:

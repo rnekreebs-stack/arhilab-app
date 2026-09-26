@@ -13,7 +13,8 @@ export async function snapshotForBootstrap(ctx:Identity,afterCursorRead?:()=>Pro
     for(const type of entityTypes) {
       const spec=specification(type);
       if(!spec) continue;
-      const rows=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE organization_id=$1 ORDER BY id LIMIT $2`,[ctx.organizationId,1001-entities.length]);
+      const files=type==='photo'||type==='document'?" AND (status='available' OR deleted_at IS NOT NULL)":'';
+      const rows=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE organization_id=$1${files} ORDER BY id LIMIT $2`,[ctx.organizationId,1001-entities.length]);
       for(const row of rows.rows) {
         const value:Record<string,unknown>={id:row.id,revision:Number(row.revision),deletedAt:row.deleted_at};
         for(const [field,column] of Object.entries(spec.fields)) value[field]=row[column];

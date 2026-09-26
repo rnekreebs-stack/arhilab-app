@@ -37,6 +37,7 @@ function snapshot(row:Record<string,unknown>,fields:Record<string,string>) {
   return state;
 }
 async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise<{result:SyncResult;state?:Record<string,unknown>;table?:string}> {
+  if(op.entityType==='photo'||op.entityType==='document') return {result:rejected(op,'unsupported','file_api_required')};
   const spec=specification(op.entityType);
   if (!spec) return {result:rejected(op,'unsupported','unsupported_entity')};
   if (!['create','update','delete'].includes(op.operationType)) return {result:rejected(op,'unsupported','unsupported_operation')};

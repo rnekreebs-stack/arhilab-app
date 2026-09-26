@@ -13,6 +13,8 @@ const specs = {
   stage: { table:'stages', fields:{projectId:'project_id',name:'name',position:'position'}, create:z.strictObject({projectId:uuid,name:text,position}) },
   payment: { table:'payments', fields:{projectId:'project_id',amount:'amount',currency:'currency',paidAt:'paid_at'}, create:z.strictObject({projectId:uuid,amount:money,currency:z.string().regex(/^[A-Z]{3}$/),paidAt:z.iso.datetime().nullable().optional()}) },
   task: { table:'tasks', fields:{projectId:'project_id',assigneeId:'assignee_id',title:'title',status:'status'}, create:z.strictObject({projectId:uuid,assigneeId:uuid.nullable().optional(),title:text,status:z.enum(['open','in_progress','done'])}) },
+  photo: {table:'photos',fields:{projectId:'project_id',filename:'original_filename',mimeType:'mime_type',byteSize:'byte_size',sha256:'content_sha256',status:'status'},create:z.strictObject({projectId:uuid})},
+  document: {table:'documents',fields:{projectId:'project_id',filename:'original_filename',mimeType:'mime_type',byteSize:'byte_size',sha256:'content_sha256',status:'status'},create:z.strictObject({projectId:uuid})},
 } as const;
 export type EntityType = keyof typeof specs;
 export const entityTypes = Object.keys(specs) as EntityType[];

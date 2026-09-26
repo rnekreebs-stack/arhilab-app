@@ -42,7 +42,20 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:unit
       - run: npm run migrate:test
+      - name: Start local S3-compatible storage
+        run: |
+          docker run -d --name arhilab-ci-minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=local-ci-only -e MINIO_ROOT_PASSWORD=local-ci-only-password \
+            minio/minio:RELEASE.2024-11-07T00-52-20Z server /data
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:9000/minio/health/live; then exit 0; fi
+            sleep 2
+          done
+          docker logs arhilab-ci-minio
+          exit 1
       - name: Stage 2 and Stage 3 PostgreSQL integration tests
+        env:
+          STORAGE_TEST_S3_ENDPOINT: http://127.0.0.1:9000
         run: npm run test:integration
       - run: npm run build
       - run: docker build -t arhilab-backend:test .
@@ -50,7 +63,7 @@ jobs:
         run: |
           docker compose up -d --build
           for attempt in $(seq 1 30); do
-            if curl -fsS http://localhost:3000/api/v1/health; then exit 0; fi
+            if curl -fsS http://localhost:3000/api/v1/health && curl -fsS http://localhost:3000/api/v1/health/storage; then exit 0; fi
             sleep 2
           done
           docker compose logs
@@ -63,4 +76,6 @@ jobs:
           test -n "$org"
           COMPOSE_SMOKE_ORG="$org" COMPOSE_SMOKE_PASSWORD='local-ci-only-password-123' node --import tsx scripts/smoke-compose.ts
       - if: always()
-        run: docker compose down -v
+        run: |
+          docker compose down -v
+          docker rm -f arhilab-ci-minio || true

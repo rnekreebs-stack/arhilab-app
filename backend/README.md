@@ -1,5 +1,7 @@
 # Arhilab Смета backend — архитектурный фундамент 0.7.0
 
+Stage 5 adds private photo/document storage and metadata sync. See [file API and storage contract](API_STAGE5_FILES.md) and [local-first client architecture](../docs/ANDROID_070_SYNC_ARCHITECTURE.md). Development Compose persists file objects in a named volume; production requires S3-compatible private storage. Android 0.6.2 remains unchanged.
+
 Этот каталог изолирован от Android-приложения 0.6.2. На Этапе 1 Android не вызывает API, пользовательские данные не передаются на сервер, локальная авторизация, backup/restore и offline-режим не изменяются.
 
 ## Стек
