@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { pool } from '../src/database/pool.js';
 
 const stage = Number(process.argv[2]);
-if (!Number.isInteger(stage) || stage < 0 || stage > 8) throw Error('Invalid migration stage');
+if (!Number.isInteger(stage) || stage < 0 || stage > 9) throw Error('Invalid migration stage');
 const requirements = [
   ['organizations','TABLE',1],['users','TABLE',1],['sync_operations','TABLE',1],
   ['sessions','TABLE',2],['refresh_credentials','TABLE',2],
@@ -19,6 +19,7 @@ const requirements = [
   ['photos.content_sha256','COLUMN',8],['photos.status','COLUMN',8],['photos.idempotency_key','COLUMN',8],
   ['documents.content_sha256','COLUMN',8],['documents.status','COLUMN',8],['documents.idempotency_key','COLUMN',8],
   ['photos_org_intent','INDEX',8],['documents_org_intent','INDEX',8],
+  ['estimates.work_markup_percent','COLUMN',9],
 ] as const;
 try {
   for (const [name,kind,fromStage] of requirements) {

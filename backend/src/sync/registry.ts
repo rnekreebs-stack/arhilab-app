@@ -3,11 +3,12 @@ import { z } from 'zod';
 const uuid = z.uuid();
 const text = z.string().trim().min(1).max(250);
 const money = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/);
+const workMarkup = z.string().regex(/^(?:0|[1-9]\d?|100)(?:\.\d{1,2})?$/).refine(value=>Number(value)<=100);
 const quantity = z.string().regex(/^\d{1,14}(\.\d{1,4})?$/);
 const position = z.number().int().min(0).max(1000000);
 const specs = {
   project: { table:'projects', fields:{name:'name'}, create:z.strictObject({name:text}) },
-  estimate: { table:'estimates', fields:{projectId:'project_id',name:'name'}, create:z.strictObject({projectId:uuid,name:text}) },
+  estimate: { table:'estimates', fields:{projectId:'project_id',name:'name',workMarkupPercent:'work_markup_percent'}, create:z.strictObject({projectId:uuid,name:text,workMarkupPercent:workMarkup.optional()}) },
   estimateItem: { table:'estimate_items', fields:{estimateId:'estimate_id',title:'title',quantity:'quantity',unit:'unit'}, create:z.strictObject({estimateId:uuid,title:text,quantity,unit:z.string().trim().max(50).nullable().optional()}) },
   material: { table:'materials', fields:{name:'name',unit:'unit'}, create:z.strictObject({name:text,unit:z.string().trim().max(50).nullable().optional()}) },
   stage: { table:'stages', fields:{projectId:'project_id',name:'name',position:'position'}, create:z.strictObject({projectId:uuid,name:text,position}) },

@@ -279,3 +279,29 @@ test('sync requires a live device and user; reactivation does not revive old ses
   assert.equal((await request('/api/v1/sync/pull','GET',undefined,oldAccess)).status,401);
   assert.equal((await request('/api/v1/auth/refresh','POST',{refreshToken:oldRefresh})).status,401);
 });
+
+test('estimate work markup defaults to zero, validates range and persists stale edit conflict',async()=>{
+  const project=randomUUID(),estimate=randomUUID();
+  assert.equal((await push([op('project',project,'create',0,{name:'F1 объект'})],accessA2)).results[0]?.status,'applied');
+  assert.equal((await push([op('estimate',estimate,'create',0,{projectId:project,name:'Смета'})],accessA2)).results[0]?.status,'applied');
+  assert.equal((await pool.query<{work_markup_percent:string}>('SELECT work_markup_percent FROM estimates WHERE id=$1',[estimate])).rows[0]?.work_markup_percent,'0.00');
+  for(const value of ['-1','100.01','1.001','Infinity','1e2']) {
+    const invalid=await push([op('estimate',estimate,'update',1,{workMarkupPercent:value})],accessA2);
+    assert.equal(invalid.results[0]?.code,'invalid_payload');
+  }
+  assert.equal((await push([op('estimate',estimate,'update',1,{workMarkupPercent:'100.00'})],accessManager)).status,403);
+  const deviceA=op('estimate',estimate,'update',1,{workMarkupPercent:'10.00'});
+  const deviceB=op('estimate',estimate,'update',1,{workMarkupPercent:'20.00'});
+  assert.equal((await push([deviceA],accessA2)).results[0]?.resultingRevision,2);
+  const loser=await push([deviceB],accessA2);
+  assert.equal(loser.results[0]?.status,'conflict');assert.ok(loser.results[0]?.conflictId);
+  const stored=await pool.query<{work_markup_percent:string;revision:string}>('SELECT work_markup_percent,revision FROM estimates WHERE id=$1',[estimate]);
+  assert.equal(stored.rows[0]?.work_markup_percent,'10.00');assert.equal(stored.rows[0]?.revision,'2');
+  const conflict=await pool.query<{client_proposal:{workMarkupPercent:string};server_snapshot:{workMarkupPercent:string}}>(
+    'SELECT client_proposal,server_snapshot FROM sync_conflicts WHERE id=$1',[loser.results[0]?.conflictId]);
+  assert.equal(conflict.rows[0]?.client_proposal.workMarkupPercent,'20.00');
+  assert.equal(conflict.rows[0]?.server_snapshot.workMarkupPercent,'10.00');
+  const pull=await request('/api/v1/sync/pull?cursor=0','GET',undefined,accessA2);
+  assert.ok((pull.body.changes as Array<{entityId:string;snapshot:{workMarkupPercent:string}}>).some(x=>x.entityId===estimate&&x.snapshot.workMarkupPercent==='10.00'));
+  assert.equal(((await request('/api/v1/sync/snapshot','GET',undefined,accessB)).body.entities as Array<{entityId:string}>).some(x=>x.entityId===estimate),false);
+});

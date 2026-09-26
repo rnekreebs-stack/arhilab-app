@@ -13,12 +13,19 @@ try {
   if (!feed.rowCount) throw new Error('Scoped cursor index missing');
   const cursor=await pool.query("SELECT 1 FROM information_schema.columns WHERE table_name='organizations' AND column_name='sync_cursor'");
   if (!cursor.rowCount) throw new Error('Organization sync cursor missing');
+  const markup=await pool.query<{column_default:string|null;is_nullable:string}>("SELECT column_default,is_nullable FROM information_schema.columns WHERE table_name='estimates' AND column_name='work_markup_percent'");
+  if(markup.rows[0]?.is_nullable!=='NO'||!markup.rows[0]?.column_default?.includes('0')) throw new Error('Estimate work markup must default to zero');
+  const range=await pool.query("SELECT 1 FROM pg_constraint WHERE conrelid='estimates'::regclass AND conname='estimates_work_markup_range'");
+  if(!range.rowCount) throw new Error('Estimate work markup range constraint missing');
   const a = randomUUID(), b = randomUUID(), project = randomUUID();
   const client=await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query('INSERT INTO organizations(id,name) VALUES ($1,$2),($3,$4)', [a,'A',b,'B']);
     await client.query('INSERT INTO projects(id,organization_id,name) VALUES ($1,$2,$3)', [project,a,'Project']);
+    const estimate=randomUUID();
+    const created=await client.query<{work_markup_percent:string}>('INSERT INTO estimates(id,organization_id,project_id,name) VALUES ($1,$2,$3,$4) RETURNING work_markup_percent',[estimate,a,project,'Legacy']);
+    if(created.rows[0]?.work_markup_percent!=='0.00') throw new Error('Legacy estimate markup changed');
     let blocked = false;
     try { await client.query('INSERT INTO estimates(id,organization_id,project_id,name) VALUES ($1,$2,$3,$4)', [randomUUID(),b,project,'Cross tenant']); }
     catch { blocked = true; }
