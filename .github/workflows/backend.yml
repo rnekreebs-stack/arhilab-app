@@ -46,7 +46,7 @@ jobs:
         run: |
           docker run -d --name arhilab-ci-minio -p 9000:9000 \
             -e MINIO_ROOT_USER=local-ci-only -e MINIO_ROOT_PASSWORD=local-ci-only-password \
-            minio/minio:RELEASE.2024-11-07T00-52-20Z server /data
+            quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z server /data
           for attempt in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live; then exit 0; fi
             sleep 2

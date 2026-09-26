@@ -1,11 +1,16 @@
 import { after,before,test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID,createHash } from 'node:crypto';
+import { mkdtemp,readFile,rm,writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { createApp } from '../../src/app.js';
 import { pool } from '../../src/database/pool.js';
 import { hashPassword } from '../../src/services/security.js';
 import { packageHash,packageSchema } from '../../src/migration/package.js';
+import { SyncCoordinator,JsonFileSyncStore,atomicVerifiedCache } from '../../src/sync/client/local-first.js';
+import { HttpSyncTransport } from '../../src/sync/client/http-transport.js';
 
 const org=randomUUID(),foreignOrg=randomUUID(),admin=randomUUID(),manager=randomUUID(),foreignAdmin=randomUUID();
 const deviceA=randomUUID(),deviceB=randomUUID(),foreignDevice=randomUUID(),password='local-stage-five-test-password-123';
@@ -115,4 +120,32 @@ test('completed legacy snapshot migrates one JPEG idempotently without exposing 
   assert.deepEqual((await call('/api/v1/files/photos/'+photo+'/content','GET',undefined,reader)).body,jpeg);
   const pulled=await call('/api/v1/sync/pull?cursor=0','GET',undefined,reader);
   assert.equal(JSON.stringify(pulled.body).includes(jpeg.toString('base64')),false);
+});
+
+test('two-device local-first E2E survives offline restart, downloads verified bytes and pulls tombstone',async()=>{
+  const project=randomUUID();await push(project,access);
+  const dir=await mkdtemp(join(tmpdir(),'arhilab-file-e2e-'));
+  try {
+    const localPath=join(dir,'offline.jpg'),cache=join(dir,'downloaded.jpg'),localId=randomUUID(),key=randomUUID();await writeFile(localPath,jpeg);
+    const token={accessToken:async()=>access,refresh:async()=>false};
+    const transport=new HttpSyncTransport(base+'/api/v1',token),store=new JsonFileSyncStore(join(dir,'queue.json'));let online=false;
+    const bSnapshot=await call('/api/v1/sync/snapshot','GET',undefined,reader);
+    const bCursor=String((bSnapshot.body as {cursor:string}).cursor);
+    let coordinator=await SyncCoordinator.open(store,transport,()=>online);
+    await coordinator.enqueueFile({localId,kind:'photos',projectId:project,localPath,filename:'offline.jpg',mimeType:'image/jpeg',
+      byteSize:jpeg.length,sha256:hash(jpeg),idempotencyKey:key});
+    assert.equal((await coordinator.syncNow()).state,'offline');
+    coordinator=await SyncCoordinator.open(store,transport,()=>online);assert.equal(coordinator.uploadJobs[0]?.localId,localId);
+    online=true;assert.equal((await coordinator.syncNow()).state,'idle');
+    const remoteId=coordinator.uploadJobs[0]?.remoteId;assert.ok(remoteId);
+    const bPull=await call('/api/v1/sync/pull?cursor='+bCursor,'GET',undefined,reader);
+    assert.ok((bPull.body as {changes:Array<{entityType:string;entityId:string}>}).changes.some(x=>x.entityType==='photo'&&x.entityId===remoteId));
+    const downloaded=await call('/api/v1/files/photos/'+remoteId+'/content','GET',undefined,reader);
+    assert.equal(downloaded.status,200);await atomicVerifiedCache(cache,downloaded.body as Buffer,hash(jpeg));
+    assert.deepEqual(await readFile(cache),jpeg);
+    assert.equal((await call('/api/v1/files/photos/'+remoteId,'DELETE',undefined,access)).status,200);
+    const delta=await call('/api/v1/sync/pull?cursor='+String((bPull.body as {nextCursor:string}).nextCursor),'GET',undefined,reader);
+    assert.ok((delta.body as {changes:Array<{entityId:string;snapshot:{status:string}}>}).changes.some(x=>x.entityId===remoteId&&x.snapshot.status==='deleted'));
+    assert.equal((await call('/api/v1/files/photos/'+remoteId+'/content','GET',undefined,reader)).status,404);
+  } finally {await rm(dir,{recursive:true,force:true});}
 });
