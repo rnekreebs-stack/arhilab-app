@@ -11,6 +11,8 @@ import { hashPassword } from '../../src/services/security.js';
 import { packageHash,packageSchema } from '../../src/migration/package.js';
 import { SyncCoordinator,JsonFileSyncStore,atomicVerifiedCache } from '../../src/sync/client/local-first.js';
 import { HttpSyncTransport } from '../../src/sync/client/http-transport.js';
+import { storage } from '../../src/files/storage.js';
+import { cleanupOldObjects } from '../../src/files/cleanup.js';
 
 const org=randomUUID(),foreignOrg=randomUUID(),admin=randomUUID(),manager=randomUUID(),foreignAdmin=randomUUID();
 const deviceA=randomUUID(),deviceB=randomUUID(),foreignDevice=randomUUID(),password='local-stage-five-test-password-123';
@@ -52,6 +54,7 @@ test('photo E2E: intent, lossless retry, concurrent finalize, metadata pull, dow
   assert.equal((await call('/api/v1/files/photos/intents','POST',intent,access)).status,200);
   assert.equal((await call('/api/v1/files/photos/intents','POST',{...intent,byteSize:jpeg.length+1},access)).status,409);
   assert.equal((await call(path+'/finalize','POST',undefined,access)).status,409);
+  assert.equal((await call(path+'/content','PUT',jpeg.subarray(0,4),access)).status,409);
   assert.equal((await call(path+'/content','PUT',Buffer.from([0,0,0,0,0,0,0,0]),access)).status,409);
   assert.equal((await call(path+'/content','PUT',jpeg,access)).status,200);
   assert.equal((await call(path+'/content','PUT',jpeg,access)).status,200);
@@ -68,7 +71,9 @@ test('photo E2E: intent, lossless retry, concurrent finalize, metadata pull, dow
   const downloaded=await call(path+'/content','GET',undefined,reader);
   assert.equal(downloaded.status,200);assert.deepEqual(downloaded.body,jpeg);
   assert.equal(downloaded.headers.get('content-disposition')?.includes('%0D'),false);
-  assert.equal((await call('/api/v1/files/quota','GET',undefined,reader)).status,200);
+  const quota=await call('/api/v1/files/quota','GET',undefined,reader);
+  assert.equal(quota.status,200);assert.equal((quota.body as {photos:{count:number;bytes:number}}).photos.count,1);
+  assert.equal((quota.body as {photos:{count:number;bytes:number}}).photos.bytes,jpeg.length);
   const removed=await call(path,'DELETE',undefined,access);assert.equal(removed.status,200);
   assert.equal((await call(path,'DELETE',undefined,access)).status,200);
   assert.equal((await call(path+'/content','GET',undefined,reader)).status,404);
@@ -99,6 +104,10 @@ test('cross-tenant/project and RBAC are closed; incomplete and spoofed objects s
   await pool.query('UPDATE users SET active=false WHERE id=$1',[admin]);
   assert.equal((await call(path,'GET',undefined,compromised)).status,401);
   await pool.query('UPDATE users SET active=true WHERE id=$1',[admin]);
+  const revokedDevice=randomUUID(),revokedAccess=await login(org,admin,revokedDevice);
+  await pool.query('UPDATE devices SET revoked_at=now() WHERE id=$1',[revokedDevice]);
+  assert.equal((await call(path,'GET',undefined,revokedAccess)).status,401);
+  assert.equal((await call('/api/v1/files/documents/intents','POST',{...intent,idempotencyKey:randomUUID()},revokedAccess)).status,401);
 });
 
 test('completed legacy snapshot migrates one JPEG idempotently without exposing archive bytes in sync',async()=>{
@@ -113,6 +122,10 @@ test('completed legacy snapshot migrates one JPEG idempotently without exposing 
   const path='/api/v1/files/legacy/'+session+'/'+photo;
   assert.equal((await call(path,'POST',undefined,foreign)).status,404);
   assert.equal((await call(path,'POST',undefined,reader)).status,403);
+  const savedPut=storage.put.bind(storage);
+  storage.put=async()=>{throw new Error('Injected storage outage');};
+  try {assert.equal((await call(path,'POST',undefined,access)).status,503);}finally{storage.put=savedPut;}
+  assert.equal((await pool.query<{status:string}>('SELECT status FROM photos WHERE id=$1',[photo])).rows[0]?.status,'pending');
   const first=await call(path,'POST',undefined,access);assert.equal(first.status,200);
   assert.equal((await call(path,'POST',undefined,access)).status,200);
   assert.equal((await pool.query('SELECT 1 FROM photos WHERE id=$1',[photo])).rowCount,1);
@@ -148,4 +161,21 @@ test('two-device local-first E2E survives offline restart, downloads verified by
     assert.ok((delta.body as {changes:Array<{entityId:string;snapshot:{status:string}}>}).changes.some(x=>x.entityId===remoteId&&x.snapshot.status==='deleted'));
     assert.equal((await call('/api/v1/files/photos/'+remoteId+'/content','GET',undefined,reader)).status,404);
   } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('explicit aged-object cleanup is dry-run first and leaves available objects untouched',async()=>{
+  const project=randomUUID();await push(project,access);
+  const intent={projectId:project,filename:'old.jpg',mimeType:'image/jpeg',byteSize:jpeg.length,sha256:hash(jpeg),idempotencyKey:randomUUID()};
+  const created=await call('/api/v1/files/photos/intents','POST',intent,access),id=(created.body as {file:{id:string}}).file.id;
+  await call('/api/v1/files/photos/'+id+'/content','PUT',jpeg,access);
+  await pool.query("UPDATE photos SET updated_at=now()-interval '72 hours' WHERE id=$1",[id]);
+  assert.ok((await cleanupOldObjects()).eligible.some(x=>x.id===id));
+  assert.equal((await pool.query<{status:string}>('SELECT status FROM photos WHERE id=$1',[id])).rows[0]?.status,'uploaded');
+  assert.ok((await cleanupOldObjects(true)).removed.some(x=>x.id===id));
+  assert.equal((await pool.query<{status:string}>('SELECT status FROM photos WHERE id=$1',[id])).rows[0]?.status,'failed');
+  assert.equal((await call('/api/v1/files/photos/'+id+'/content','PUT',jpeg,access)).status,200);
+  assert.equal((await call('/api/v1/files/photos/'+id+'/finalize','POST',undefined,access)).status,200);
+  await pool.query("UPDATE photos SET updated_at=now()-interval '72 hours' WHERE id=$1",[id]);
+  assert.equal((await cleanupOldObjects(true)).removed.some(x=>x.id===id),false);
+  assert.equal((await pool.query('SELECT 1 FROM audit_logs WHERE entity_id=$1 AND action=$2',[id,'file.cleanup'])).rowCount,1);
 });

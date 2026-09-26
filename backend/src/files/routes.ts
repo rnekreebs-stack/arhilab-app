@@ -76,7 +76,7 @@ filesRouter.post('/legacy/:sessionId/:photoId',async(req,res)=>{
   const ctx=identity(res),sessionId=String(req.params.sessionId),photoId=String(req.params.photoId);
   if(ctx.role!=='admin') throw new HttpError(403,'Forbidden');
   if(!/^[0-9a-f-]{36}$/.test(sessionId)||!/^[0-9a-f-]{36}$/.test(photoId)) throw new HttpError(400,'Invalid ID');
-  const result=await transaction(async client=>{
+  const prepared=await transaction(async client=>{
     await authorizedWrite(client,ctx);
     const archive=await client.query<{business_snapshot:unknown}>(`SELECT l.business_snapshot FROM migration_legacy_snapshots l
       JOIN migration_sessions s ON s.id=l.session_id AND s.organization_id=l.organization_id
@@ -94,14 +94,23 @@ filesRouter.post('/legacy/:sessionId/:photoId',async(req,res)=>{
       const row=existing.rows[0];
       if(row.organization_id!==ctx.organizationId||row.project_id!==project.id||row.content_sha256!==sha256||row.status==='deleted')
         throw new HttpError(409,'Photo identity collision','photo_collision');
-      if(row.status==='available') return {file:present(row),duplicate:true};
+      if(row.status==='available') return {file:present(row),duplicate:true,bytes:null,key,sha256};
     } else {
       const active=await client.query('SELECT 1 FROM projects WHERE organization_id=$1 AND id=$2 AND deleted_at IS NULL',[ctx.organizationId,project.id]);
       if(!active.rowCount) throw new HttpError(409,'Project is not available','project_unavailable');
       await client.query(`INSERT INTO photos(id,organization_id,project_id,storage_key,original_filename,mime_type,byte_size,content_sha256,status,created_by,source_device_id,idempotency_key)
         VALUES($1,$2,$3,$4,$5,'image/jpeg',$6,$7,'pending',$8,$9,$10)`,[photoId,ctx.organizationId,project.id,key,displayFilename(photo.name??`legacy-${photoId}.jpg`),bytes.length,sha256,ctx.userId,ctx.deviceId,`legacy-${sessionId}-${photoId}`]);
     }
-    try {await storage.put(key,bytes,{size:bytes.length,sha256,mime:'image/jpeg'});}
+    return {file:null,duplicate:false,bytes,key,sha256};
+  });
+  if(prepared.duplicate) {res.json({file:prepared.file,duplicate:true});return;}
+  const result=await transaction(async client=>{
+    await authorizedWrite(client,ctx);
+    const row=await getFile(client,'photos',ctx,photoId,true);
+    if(row.status==='available') return {file:present(row),duplicate:true};
+    if(row.status==='deleted'||row.content_sha256!==prepared.sha256) throw new HttpError(409,'Photo identity collision','photo_collision');
+    const bytes=prepared.bytes!;
+    try {await storage.put(prepared.key,bytes,{size:bytes.length,sha256:prepared.sha256,mime:'image/jpeg'});}
     catch {throw new HttpError(503,'Storage unavailable','storage_unavailable');}
     const updated=await client.query<FileRow>("UPDATE photos SET status='available',revision=1,uploaded_at=now(),available_at=now(),updated_at=now() WHERE id=$1 RETURNING *",[photoId]);
     await writeChange(client,ctx,'photos',updated.rows[0]!,'create');
@@ -127,7 +136,7 @@ filesRouter.put('/:kind/:id/content',express.raw({type:'application/octet-stream
     if(digest(bytes)!==row.content_sha256) throw new HttpError(409,'SHA-256 mismatch','hash_mismatch');
     if(!validType(table,row.mime_type,bytes)) throw new HttpError(415,'File signature mismatch','type_mismatch');
     if(row.status==='uploaded') {
-      const current=await storage.head(row.storage_key);
+      let current;try {current=await storage.head(row.storage_key);} catch {throw new HttpError(503,'Storage unavailable','storage_unavailable');}
       if(current?.sha256===row.content_sha256&&current.size===bytes.length) return {status:'uploaded',duplicate:true};
     }
     try {await storage.put(row.storage_key,bytes,{size:bytes.length,sha256:row.content_sha256,mime:row.mime_type});}
