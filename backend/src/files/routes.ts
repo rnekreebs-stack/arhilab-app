@@ -72,6 +72,20 @@ filesRouter.get('/quota',async(_req,res)=>{
     `SELECT count(*) FILTER (WHERE status='available') AS count,coalesce(sum(byte_size) FILTER (WHERE status='available'),0) AS bytes FROM ${table} WHERE organization_id=$1`,[ctx.organizationId])));
   res.json({photos:{count:Number(photos?.rows[0]?.count),bytes:Number(photos?.rows[0]?.bytes)},documents:{count:Number(documents?.rows[0]?.count),bytes:Number(documents?.rows[0]?.bytes)}});
 });
+filesRouter.get('/legacy/:sessionId/status',async(req,res)=>{
+  const ctx=identity(res),sessionId=String(req.params.sessionId);
+  if(ctx.role!=='admin') throw new HttpError(403,'Forbidden');
+  if(!/^[0-9a-f-]{36}$/.test(sessionId)) throw new HttpError(400,'Invalid ID');
+  const archived=await pool.query<{business_snapshot:unknown}>(`SELECT l.business_snapshot FROM migration_legacy_snapshots l
+    JOIN migration_sessions s ON s.id=l.session_id AND s.organization_id=l.organization_id
+    WHERE l.organization_id=$1 AND l.session_id=$2 AND s.status='completed'`,[ctx.organizationId,sessionId]);
+  if(!archived.rows[0]) throw new HttpError(404,'Not found');
+  const pkg=packageSchema.parse(archived.rows[0].business_snapshot);
+  const ids=pkg.projects.flatMap(p=>[...p.photos,...(p.estimatePhotos??[])].map(photo=>photo.id));
+  const saved=await pool.query<{id:string;status:FileState}>('SELECT id,status FROM photos WHERE organization_id=$1 AND id=ANY($2::uuid[])',[ctx.organizationId,ids]);
+  const mapped=new Map(saved.rows.map(row=>[row.id,row.status]));
+  res.json({photos:ids.map(id=>({id,status:mapped.get(id)==='available'?'available':mapped.get(id)==='deleted'?'deleted':mapped.has(id)?'pending_upload':'legacy_local_only'}))});
+});
 filesRouter.post('/legacy/:sessionId/:photoId',async(req,res)=>{
   const ctx=identity(res),sessionId=String(req.params.sessionId),photoId=String(req.params.photoId);
   if(ctx.role!=='admin') throw new HttpError(403,'Forbidden');

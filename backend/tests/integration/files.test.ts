@@ -120,13 +120,16 @@ test('completed legacy snapshot migrates one JPEG idempotently without exposing 
   await pool.query(`INSERT INTO migration_legacy_snapshots(session_id,organization_id,source_format,source_app_version,source_schema_version,package_hash,business_snapshot)
     VALUES($1,$2,'Arhilab-2','0.6.2',2,$3,$4)`,[session,org,packageHash(pkg),JSON.stringify(pkg)]);
   const path='/api/v1/files/legacy/'+session+'/'+photo;
+  assert.deepEqual((await call('/api/v1/files/legacy/'+session+'/status','GET',undefined,access)).body,{photos:[{id:photo,status:'legacy_local_only'}]});
   assert.equal((await call(path,'POST',undefined,foreign)).status,404);
   assert.equal((await call(path,'POST',undefined,reader)).status,403);
   const savedPut=storage.put.bind(storage);
   storage.put=async()=>{throw new Error('Injected storage outage');};
   try {assert.equal((await call(path,'POST',undefined,access)).status,503);}finally{storage.put=savedPut;}
   assert.equal((await pool.query<{status:string}>('SELECT status FROM photos WHERE id=$1',[photo])).rows[0]?.status,'pending');
+  assert.deepEqual((await call('/api/v1/files/legacy/'+session+'/status','GET',undefined,access)).body,{photos:[{id:photo,status:'pending_upload'}]});
   const first=await call(path,'POST',undefined,access);assert.equal(first.status,200);
+  assert.deepEqual((await call('/api/v1/files/legacy/'+session+'/status','GET',undefined,access)).body,{photos:[{id:photo,status:'available'}]});
   assert.equal((await call(path,'POST',undefined,access)).status,200);
   assert.equal((await pool.query('SELECT 1 FROM photos WHERE id=$1',[photo])).rowCount,1);
   assert.equal((await pool.query("SELECT 1 FROM sync_changes WHERE entity_type='photo' AND entity_id=$1",[photo])).rowCount,1);

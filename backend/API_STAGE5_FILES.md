@@ -26,6 +26,8 @@ The ordinary Stage 3 pull feed carries only file ID, project ID, display filenam
 
 `POST /api/v1/files/legacy/{completedMigrationSessionId}/{legacyPhotoId}` is admin-only. It migrates one JPEG from the immutable Stage 4 sanitized archive into private storage, using the original photo UUID and a deterministic object key. The pending metadata record commits before object upload so a storage/DB failure can be reconciled by retrying the same ID. It refuses unavailable projects and incompatible collisions. Repeating a completed request returns the same metadata without creating a second change. No bulk migration is required, and the raw Stage 4 archive is never returned by ordinary sync endpoints. Android's encrypted local PhotoStore and backups remain intact.
 
+`GET /api/v1/files/legacy/{completedMigrationSessionId}/status` is admin-only and returns IDs with `legacy_local_only`, `pending_upload`, `available`, or `deleted` state, without image bytes. It supports gradual migration progress and recovery.
+
 ## Operational and security notes
 
 Store only trusted photo/document types; content signatures are checked in addition to MIME and filename. Object versions are immutable after `available`; replacement requires a new file ID. Downloads verify SHA-256 again. Administrative deletion and legacy upload are audited without content. The existing request logger records route/status/request ID, not file bodies or credentials. The server bounds uploads in memory by its configured size limit, so configure that limit within available instance memory. Sync and file storage readiness are separate for diagnosis.
