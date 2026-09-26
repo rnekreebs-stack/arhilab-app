@@ -44,18 +44,18 @@ jobs:
       - run: npm run migrate:test
       - name: Start local S3-compatible storage
         run: |
-          docker run -d --name arhilab-ci-minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=local-ci-only -e MINIO_ROOT_PASSWORD=local-ci-only-password \
-            quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z server /data
+          docker run -d --name arhilab-ci-s3 -p 4566:4566 \
+            -e SERVICES=s3 -e AWS_DEFAULT_REGION=us-east-1 \
+            localstack/localstack:3.8.0
           for attempt in $(seq 1 30); do
-            if curl -fsS http://localhost:9000/minio/health/live; then exit 0; fi
+            if curl -fsS http://localhost:4566/_localstack/health; then exit 0; fi
             sleep 2
           done
-          docker logs arhilab-ci-minio
+          docker logs arhilab-ci-s3
           exit 1
       - name: Stage 2 and Stage 3 PostgreSQL integration tests
         env:
-          STORAGE_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          STORAGE_TEST_S3_ENDPOINT: http://127.0.0.1:4566
         run: npm run test:integration
       - run: npm run build
       - run: docker build -t arhilab-backend:test .
@@ -78,4 +78,4 @@ jobs:
       - if: always()
         run: |
           docker compose down -v
-          docker rm -f arhilab-ci-minio || true
+          docker rm -f arhilab-ci-s3 || true
