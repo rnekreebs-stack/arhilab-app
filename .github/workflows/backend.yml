@@ -41,13 +41,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - name: Compile Android application sources without signing or packaging
         run: |
-          sdkmanager --install 'platforms;android-35'
+          sdk_root="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          test -n "$sdk_root"
+          if [ ! -f "$sdk_root/platforms/android-35/android.jar" ]; then
+            sdkmanager --install 'platforms;android-35'
+          fi
           mkdir -p /tmp/arhilab-f1-classes
           javac -encoding UTF-8 -source 8 -target 8 \
-            -classpath "$ANDROID_HOME/platforms/android-35/android.jar" \
+            -classpath "$sdk_root/platforms/android-35/android.jar" \
             -d /tmp/arhilab-f1-classes arhilab/src/ru/arhilab/estimate/*.java
       - run: npm ci
       - run: npm run lint
