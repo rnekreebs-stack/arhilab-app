@@ -282,6 +282,7 @@ test('sync requires a live device and user; reactivation does not revive old ses
 
 test('estimate work markup defaults to zero, validates range and persists stale edit conflict',async()=>{
   const project=randomUUID(),estimate=randomUUID();
+  const before=(await pool.query<{sync_cursor:string}>('SELECT sync_cursor FROM organizations WHERE id=$1',[orgA])).rows[0]?.sync_cursor;
   assert.equal((await push([op('project',project,'create',0,{name:'F1 объект'})],accessA2)).results[0]?.status,'applied');
   assert.equal((await push([op('estimate',estimate,'create',0,{projectId:project,name:'Смета'})],accessA2)).results[0]?.status,'applied');
   assert.equal((await pool.query<{work_markup_percent:string}>('SELECT work_markup_percent FROM estimates WHERE id=$1',[estimate])).rows[0]?.work_markup_percent,'0.00');
@@ -301,7 +302,7 @@ test('estimate work markup defaults to zero, validates range and persists stale 
     'SELECT client_proposal,server_snapshot FROM sync_conflicts WHERE id=$1',[loser.results[0]?.conflictId]);
   assert.equal(conflict.rows[0]?.client_proposal.workMarkupPercent,'20.00');
   assert.equal(conflict.rows[0]?.server_snapshot.workMarkupPercent,'10.00');
-  const pull=await request('/api/v1/sync/pull?cursor=0','GET',undefined,accessA2);
+  const pull=await request('/api/v1/sync/pull?cursor='+before,'GET',undefined,accessA2);
   assert.ok((pull.body.changes as Array<{entityId:string;snapshot:{workMarkupPercent:string}}>).some(x=>x.entityId===estimate&&x.snapshot.workMarkupPercent==='10.00'));
   assert.equal(((await request('/api/v1/sync/snapshot','GET',undefined,accessB)).body.entities as Array<{entityId:string}>).some(x=>x.entityId===estimate),false);
 });
