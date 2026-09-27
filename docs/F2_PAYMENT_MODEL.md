@@ -8,7 +8,7 @@
 
 - Old incoming and outgoing records stay attached to the object. Admin may explicitly attach an incoming payment to a selected estimate. Never attach them automatically to the original estimate.
 - Each estimate has an explicitly selected currency. Old estimates have **no inferred currency** until admin confirms one. A new payment must explicitly specify its currency. Show `paid/remaining` only for payments attached to the selected estimate with the same currency. Never convert or add unlike currencies.
-- The original object payment list and expenses remain available. An object-level payment is not included in the selected estimate's balance. Existing object-level calculations retain their 0.6.2 meaning.
+- The original object payment list and expenses remain available. An object-level payment is not included in the selected estimate's balance. The original object summary excludes explicitly attached payments from its legacy `paid` and `remaining` fields; otherwise paying a different estimate would falsely reduce the legacy estimate's balance. Existing unassigned object-level calculations retain their 0.6.2 meaning.
 
 ## Field mapping
 
