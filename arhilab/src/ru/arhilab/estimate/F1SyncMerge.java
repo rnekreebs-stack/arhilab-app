@@ -98,7 +98,7 @@ final class F1SyncMerge {
                     .put("note", snapshot.optString("comment", ""))
                     .put("type", snapshot.optString("paymentType", ""));
                 if(!snapshot.isNull("kind")&&snapshot.has("kind"))payment.put("kind",snapshot.getString("kind"));
-                for (String field : new String[]{"estimateId", "planDate", "actualDate"})
+                for (String field : new String[]{"estimateId", "planDate", "actualDate", "paidAt"})
                     if (snapshot.has(field) && !snapshot.isNull(field)) payment.put(field, snapshot.get(field));
                     else payment.remove(field);
             }

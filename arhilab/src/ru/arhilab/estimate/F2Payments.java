@@ -21,6 +21,21 @@ final class F2Payments {
         return input;
     }
 
+    static void edit(JSONObject payment, String received, String date, String note) throws Exception {
+        String value;
+        if(payment.has("planDate") && received.matches("(?:0|[1-9][0-9]{0,15})(?:\\.[0-9]{1,2})?"))
+            value=new BigDecimal(received).setScale(2).toPlainString();
+        else value=amount(received);
+        java.time.LocalDate.parse(date);
+        if(note.length()>1000)throw new IllegalArgumentException("Комментарий слишком длинный");
+        if(payment.has("planDate")) {
+            if(new BigDecimal(value).compareTo(new BigDecimal(payment.get("amount").toString()))>0)
+                throw new IllegalArgumentException("Оплата превышает плановую сумму платежа");
+            payment.put("paid",value); // Preserve the historical planned amount.
+        } else payment.put("amount",value).put("paid",value);
+        payment.put("date",date).put("note",note);
+    }
+
     static JSONObject summary(JSONObject estimate, JSONArray payments, Object estimateTotal) throws Exception {
         String currency = estimate.optString("currency", "");
         if (!currency.matches("[A-Z]{3}")) return new JSONObject().put("currencyRequired", true);

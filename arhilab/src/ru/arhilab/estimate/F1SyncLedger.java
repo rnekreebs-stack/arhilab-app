@@ -148,6 +148,7 @@ final class F1SyncLedger {
                     .put("actualDate", payment.optString("actualDate", "").isEmpty() ? JSONObject.NULL : payment.getString("actualDate"))
                     .put("comment", payment.optString("note", ""))
                     .put("paymentType", payment.optString("type", ""));
+                if(payment.has("paidAt")&&!payment.isNull("paidAt"))payload.put("paidAt",payment.getString("paidAt"));
                 row(rows, "payment", payment.getString("id"), payload);
             }
         }

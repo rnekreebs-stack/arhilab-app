@@ -203,9 +203,7 @@ public class MainActivity extends Activity {
     .put("date",date).put("note",note).put("type","Платёж за этап"));save();result.put("paymentId",id);break;}
  case "f2PaymentEdit":{admin();JSONObject p=project(a.getString("project")),payment=find(p.getJSONArray("payments"),a.getString("id"));
   if(!"income".equals(payment.optString("kind"))||!payment.has("estimateId"))throw new Exception("Изменение этого платежа выполняется в исходном разделе объекта");
-  String amount=F2Payments.amount(required(a,"amount"));String date=required(a,"date");java.time.LocalDate.parse(date);
-  String note=a.optString("note","").trim();if(note.length()>1000)throw new Exception("Комментарий слишком длинный");
-  payment.put("amount",amount).put("paid",amount).put("date",date).put("note",note);save();break;}
+  F2Payments.edit(payment,required(a,"amount"),required(a,"date"),a.optString("note","").trim());save();break;}
  case "f2PaymentResolve":{admin();JSONObject p=project(a.getString("project")),payment=find(p.getJSONArray("payments"),a.getString("id"));
   String currency=F2Payments.currency(required(a,"currency"));String estimateId=a.optString("estimate","");
   if(!estimateId.isEmpty()){JSONObject estimate=find(p.getJSONArray("estimates"),estimateId);
