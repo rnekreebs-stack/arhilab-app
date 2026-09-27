@@ -37,8 +37,15 @@ final class F1SyncLedger {
             JSONObject project = projects.getJSONObject(p);
             for (String field : new String[]{"assigned"})
                 if (project.has(field) && !project.optString(field).isEmpty() && !project.optString(field).equals("0")) return true;
-            for (String field : new String[]{"tasks", "payments", "notes", "photos", "estimatePhotos"})
+            for (String field : new String[]{"tasks", "notes", "photos", "estimatePhotos"})
                 if (project.optJSONArray(field) != null && project.getJSONArray(field).length() > 0) return true;
+            JSONArray payments=project.optJSONArray("payments");
+            if(payments!=null)for(int i=0;i<payments.length();i++){
+                JSONObject payment=payments.getJSONObject(i);
+                if(!payment.optString("currency","").matches("[A-Z]{3}") ||
+                   !payment.optString("kind","").matches("income|expense") ||
+                   !payment.optString("date","").matches("\\d{4}-\\d{2}-\\d{2}"))return true;
+            }
             JSONArray estimates = project.optJSONArray("estimates");
             if (estimates == null) continue;
             for (int e = 0; e < estimates.length(); e++) {
