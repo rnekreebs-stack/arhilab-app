@@ -2,9 +2,9 @@ name: Arhilab 0.7.0 Backend
 on:
   push:
     branches: [arhilab-0.7.0-architecture]
-    paths: ['backend/**', 'arhilab/**', '.github/workflows/backend.yml']
+    paths: ['backend/**', 'arhilab/**', 'docs/CATALOG_PRICE_UPDATE_2026_09.md', '.github/workflows/backend.yml']
   pull_request:
-    paths: ['backend/**', 'arhilab/**', '.github/workflows/backend.yml']
+    paths: ['backend/**', 'arhilab/**', 'docs/CATALOG_PRICE_UPDATE_2026_09.md', '.github/workflows/backend.yml']
   workflow_dispatch:
 permissions:
   contents: read
