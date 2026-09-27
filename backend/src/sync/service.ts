@@ -3,7 +3,7 @@ import type { PoolClient } from 'pg';
 import { pool } from '../database/pool.js';
 import { HttpError } from '../middleware/errors.js';
 import { assertCurrentAdmin, transaction, type Identity } from '../services/security.js';
-import { parsePayload, specification, type EntityType } from './registry.js';
+import { parsePayload, specification, visibleSnapshot, type EntityType } from './registry.js';
 import { canonical } from './canonical.js';
 import type { SyncOperation } from './validation.js';
 
@@ -132,5 +132,5 @@ export async function pullChanges(ctx:Identity,cursor:string,limit:number) {
   const changes=await pool.query<{sequence:string;entity_type:string;entity_id:string;revision:string;operation_type:string;snapshot:Record<string,unknown>;source_device_id:string;sync_operation_id:string;changed_at:Date}>(`SELECT sequence,entity_type,entity_id,revision,operation_type,snapshot,source_device_id,sync_operation_id,changed_at FROM sync_changes WHERE organization_id=$1 AND sequence>$2 ORDER BY sequence LIMIT $3`,[ctx.organizationId,cursor,limit+1]);
   const hasMore=changes.rows.length>limit;
   const page=changes.rows.slice(0,limit);
-  return {changes:page.map(row=>({sequence:row.sequence,entityType:row.entity_type,entityId:row.entity_id,revision:Number(row.revision),operationType:row.operation_type,snapshot:row.snapshot,sourceDeviceId:row.source_device_id,operationId:row.sync_operation_id,changedAt:row.changed_at.toISOString()})),nextCursor:page.at(-1)?.sequence ?? cursor,hasMore};
+  return {changes:page.map(row=>({sequence:row.sequence,entityType:row.entity_type,entityId:row.entity_id,revision:Number(row.revision),operationType:row.operation_type,snapshot:visibleSnapshot(ctx.role,row.snapshot),sourceDeviceId:row.source_device_id,operationId:row.sync_operation_id,changedAt:row.changed_at.toISOString()})),nextCursor:page.at(-1)?.sequence ?? cursor,hasMore};
 }

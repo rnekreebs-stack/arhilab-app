@@ -30,10 +30,12 @@ final class F1SyncLedger {
     }
 
     static boolean hasPrivateLegacy(JSONObject database) throws Exception {
+        JSONObject sync = database.optJSONObject("f1Sync");
+        if (sync != null && sync.optBoolean("missingPrivateLegacy")) return true;
         JSONArray projects = database.getJSONArray("projects");
         for (int p = 0; p < projects.length(); p++) {
             JSONObject project = projects.getJSONObject(p);
-            for (String field : new String[]{"assigned", "deliveryCost", "overhead", "otherCost"})
+            for (String field : new String[]{"assigned"})
                 if (project.has(field) && !project.optString(field).isEmpty() && !project.optString(field).equals("0")) return true;
             for (String field : new String[]{"tasks", "payments", "notes", "photos", "estimatePhotos"})
                 if (project.optJSONArray(field) != null && project.getJSONArray(field).length() > 0) return true;
@@ -41,13 +43,13 @@ final class F1SyncLedger {
             if (estimates == null) continue;
             for (int e = 0; e < estimates.length(); e++) {
                 JSONObject estimate = estimates.getJSONObject(e);
-                if (estimate.has("purchases") || estimate.optInt("materialMarkup", 8) != 8) return true;
+                if (estimate.has("purchases")) return true;
                 for (String kind : new String[]{"lines", "materials"}) {
                     JSONArray rows = estimate.optJSONArray(kind);
                     if (rows == null) continue;
                     for (int i = 0; i < rows.length(); i++) {
                         JSONObject row = rows.getJSONObject(i);
-                        for (String field : new String[]{"cost", "materialCost", "materialTier", "kitOverrides", "materialNote", "materials"})
+                        for (String field : new String[]{"tiers", "category", "store", "brand"})
                             if (row.has(field)) return true;
                     }
                 }
@@ -76,6 +78,7 @@ final class F1SyncLedger {
 
     static JSONObject projection(JSONObject database) throws Exception {
         JSONObject rows = new JSONObject();
+        boolean incompleteLegacy = hasPrivateLegacy(database);
         JSONArray projects = database.getJSONArray("projects");
         for (int p = 0; p < projects.length(); p++) {
             JSONObject project = projects.getJSONObject(p);
@@ -93,7 +96,8 @@ final class F1SyncLedger {
                     .put("projectId", projectId).put("name", estimate.getString("name"))
                     .put("workMarkupPercent", decimal(estimate.opt("workMarkupPercent"), 2))
                     .put("delivery", decimal(estimate.opt("delivery"), 2))
-                    .put("discount", decimal(estimate.opt("discount"), 2)));
+                    .put("discount", decimal(estimate.opt("discount"), 2))
+                    .put("privateData", estimatePrivate(estimate, incompleteLegacy)));
                 for (String kind : new String[]{"lines", "materials"}) {
                     JSONArray items = estimate.optJSONArray(kind);
                     if (items == null) continue;
@@ -114,12 +118,44 @@ final class F1SyncLedger {
                         }
                         String catalogKey = item.optString("key", "");
                         if (!catalogKey.isEmpty()) payload.put("catalogKey", catalogKey);
+                        payload.put("privateData", itemPrivate(item));
                         row(rows, "estimateItem", item.getString("syncId"), payload);
                     }
                 }
             }
         }
         return rows;
+    }
+
+    private static JSONObject estimatePrivate(JSONObject estimate, boolean incompleteLegacy) throws Exception {
+        JSONObject privateData = new JSONObject();
+        if (incompleteLegacy) privateData.put("incompleteLegacy", true);
+        if (estimate.has("materialMarkup")) privateData.put("materialMarkup", estimate.getInt("materialMarkup"));
+        for (String field : new String[]{"deliveryCost", "overhead", "otherCost"})
+            if (estimate.has(field)) privateData.put(field, decimal(estimate.get(field), 2));
+        return privateData;
+    }
+
+    private static JSONObject itemPrivate(JSONObject item) throws Exception {
+        JSONObject privateData = new JSONObject();
+        for (String field : new String[]{"cost", "materialCost"})
+            if (item.has(field)) privateData.put(field, decimal(item.get(field), 2));
+        for (String field : new String[]{"materialTier", "materialNote"})
+            if (item.has(field)) privateData.put(field, item.getString(field));
+        JSONArray materials = item.optJSONArray("materials");
+        if (materials != null) privateData.put("materials", new JSONArray(materials.toString()));
+        JSONObject overrides = item.optJSONObject("kitOverrides");
+        if (overrides != null) {
+            JSONObject entries = new JSONObject();
+            for (Iterator<String> keys = overrides.keys(); keys.hasNext();) {
+                String key = keys.next();
+                JSONObject old = overrides.getJSONObject(key);
+                entries.put(key, new JSONObject().put("sku", old.getString("sku"))
+                    .put("qty", decimal(old.get("qty"), 4)));
+            }
+            privateData.put("kitOverrides", entries);
+        }
+        return privateData;
     }
 
     private static void enqueue(JSONArray operations, JSONObject revisions, String key, String operationType, JSONObject payload) throws Exception {

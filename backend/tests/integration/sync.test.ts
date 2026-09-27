@@ -360,6 +360,21 @@ test('Java Android ledger serialization reaches PostgreSQL, survives Device B re
     assert.deepEqual(lostResponse.results.map(x=>x.status),Array(4).fill('duplicate'));
     const count=await pool.query<{total:string}>('SELECT count(*)::text AS total FROM estimate_items WHERE estimate_id=$1',[estimate.entityId]);
     assert.equal(count.rows[0]?.total,'2');
+    const workId=fixture.operations.find(x=>x.entityType==='estimateItem'&&x.payload&&
+      (x.payload as {kind?:string}).kind==='work')?.entityId;
+    assert.ok(workId);
+    const privateRow=await pool.query<{private_fields:{cost:string}}>('SELECT private_fields FROM estimate_items WHERE id=$1',[workId]);
+    assert.equal(privateRow.rows[0]?.private_fields.cost,'45.00');
+    for(const limitedAccess of [accessManager,accessWorker]) {
+      const limited=await request('/api/v1/sync/snapshot','GET',undefined,limitedAccess);
+      assert.equal(limited.status,200);
+      const limitedItem:{entityId:string;snapshot:Record<string,unknown>}|undefined=
+        (limited.body.entities as Array<{entityId:string;snapshot:Record<string,unknown>}>).find(x=>x.entityId===workId);
+      assert.ok(limitedItem);assert.equal(Object.hasOwn(limitedItem.snapshot,'privateData'),false);
+      const feed=await request('/api/v1/sync/pull?cursor=0&limit=100','GET',undefined,limitedAccess);
+      assert.equal(feed.status,200);
+      assert.equal((feed.body.changes as Array<{snapshot:Record<string,unknown>}>).some(x=>Object.hasOwn(x.snapshot,'privateData')),false);
+    }
     const folder=await mkdtemp(join(tmpdir(),'arhilab-f1-device-b-'));
     try {
       const store=new JsonFileSyncStore(join(folder,'state.json'));

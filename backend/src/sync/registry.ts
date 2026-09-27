@@ -6,10 +6,16 @@ const money = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/);
 const workMarkup = z.string().regex(/^(?:0|[1-9]\d?|100)(?:\.\d{1,2})?$/).refine(value=>Number(value)<=100);
 const quantity = z.string().regex(/^\d{1,14}(\.\d{1,4})?$/);
 const position = z.number().int().min(0).max(1000000);
+const estimatePrivate = z.strictObject({materialMarkup:z.number().int().min(0).max(100).optional(),
+  deliveryCost:money.optional(),overhead:money.optional(),otherCost:money.optional(),incompleteLegacy:z.boolean().optional()});
+const itemPrivate = z.strictObject({cost:money.optional(),materialCost:money.optional(),
+  materialTier:z.enum(['economy','standard','premium']).optional(),materialNote:z.string().max(2000).optional(),
+  materials:z.array(z.string().max(250)).max(100).optional(),
+  kitOverrides:z.record(z.string().max(250),z.strictObject({sku:z.string().max(250),qty:quantity})).optional()});
 const specs = {
   project: { table:'projects', fields:{name:'name',address:'address',client:'client_name',status:'project_status'}, create:z.strictObject({name:text,address:z.string().max(500).optional(),client:z.string().max(500).optional(),status:z.string().max(100).optional()}) },
-  estimate: { table:'estimates', fields:{projectId:'project_id',name:'name',workMarkupPercent:'work_markup_percent',delivery:'delivery_amount',discount:'discount_amount'}, create:z.strictObject({projectId:uuid,name:text,workMarkupPercent:workMarkup.optional(),delivery:money.optional(),discount:money.optional()}) },
-  estimateItem: { table:'estimate_items', fields:{estimateId:'estimate_id',title:'title',quantity:'quantity',unit:'unit',kind:'item_kind',price:'unit_price',coefficient:'coefficient',autoMaterial:'auto_material',materialPrice:'material_price',catalogKey:'catalog_key',extra:'extra',extraStatus:'extra_status'}, create:z.strictObject({estimateId:uuid,title:text,quantity,unit:z.string().trim().max(50).nullable().optional(),kind:z.enum(['work','material']).optional(),price:money.optional(),coefficient:quantity.optional(),autoMaterial:z.boolean().optional(),materialPrice:money.optional(),catalogKey:z.string().max(250).nullable().optional(),extra:z.boolean().optional(),extraStatus:z.string().max(100).nullable().optional()}) },
+  estimate: { table:'estimates', fields:{projectId:'project_id',name:'name',workMarkupPercent:'work_markup_percent',delivery:'delivery_amount',discount:'discount_amount',privateData:'private_fields'}, create:z.strictObject({projectId:uuid,name:text,workMarkupPercent:workMarkup.optional(),delivery:money.optional(),discount:money.optional(),privateData:estimatePrivate.optional()}) },
+  estimateItem: { table:'estimate_items', fields:{estimateId:'estimate_id',title:'title',quantity:'quantity',unit:'unit',kind:'item_kind',price:'unit_price',coefficient:'coefficient',autoMaterial:'auto_material',materialPrice:'material_price',catalogKey:'catalog_key',extra:'extra',extraStatus:'extra_status',privateData:'private_fields'}, create:z.strictObject({estimateId:uuid,title:text,quantity,unit:z.string().trim().max(50).nullable().optional(),kind:z.enum(['work','material']).optional(),price:money.optional(),coefficient:quantity.optional(),autoMaterial:z.boolean().optional(),materialPrice:money.optional(),catalogKey:z.string().max(250).nullable().optional(),extra:z.boolean().optional(),extraStatus:z.string().max(100).nullable().optional(),privateData:itemPrivate.optional()}) },
   material: { table:'materials', fields:{name:'name',unit:'unit'}, create:z.strictObject({name:text,unit:z.string().trim().max(50).nullable().optional()}) },
   stage: { table:'stages', fields:{projectId:'project_id',name:'name',position:'position'}, create:z.strictObject({projectId:uuid,name:text,position}) },
   payment: { table:'payments', fields:{projectId:'project_id',amount:'amount',currency:'currency',paidAt:'paid_at'}, create:z.strictObject({projectId:uuid,amount:money,currency:z.string().regex(/^[A-Z]{3}$/),paidAt:z.iso.datetime().nullable().optional()}) },
@@ -19,6 +25,11 @@ const specs = {
 } as const;
 export type EntityType = keyof typeof specs;
 export const entityTypes = Object.keys(specs) as EntityType[];
+export function visibleSnapshot(role:'admin'|'manager'|'worker',snapshot:Record<string,unknown>) {
+  if(role==='admin') return snapshot;
+  const visible={...snapshot};delete visible.privateData;
+  return visible;
+}
 export function specification(type: string) {
   if (!Object.prototype.hasOwnProperty.call(specs,type)) return null;
   const spec = specs[type as EntityType];

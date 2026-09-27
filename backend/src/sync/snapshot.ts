@@ -1,7 +1,7 @@
 import { pool } from '../database/pool.js';
 import { HttpError } from '../middleware/errors.js';
 import type { Identity } from '../services/security.js';
-import { entityTypes,specification } from './registry.js';
+import { entityTypes,specification,visibleSnapshot } from './registry.js';
 const MAX_BOOTSTRAP_ENTITIES = 2500;
 
 export async function snapshotForBootstrap(ctx:Identity,afterCursorRead?:()=>Promise<void>) {
@@ -19,7 +19,7 @@ export async function snapshotForBootstrap(ctx:Identity,afterCursorRead?:()=>Pro
       for(const row of rows.rows) {
         const value:Record<string,unknown>={id:row.id,revision:Number(row.revision),deletedAt:row.deleted_at};
         for(const [field,column] of Object.entries(spec.fields)) value[field]=row[column];
-        entities.push({entityType:type,entityId:String(row.id),revision:Number(row.revision),snapshot:value});
+        entities.push({entityType:type,entityId:String(row.id),revision:Number(row.revision),snapshot:visibleSnapshot(ctx.role,value)});
       }
       if(entities.length>MAX_BOOTSTRAP_ENTITIES) throw new HttpError(413,'Snapshot exceeds page limit','snapshot_too_large');
     }

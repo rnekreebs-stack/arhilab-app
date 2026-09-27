@@ -68,9 +68,17 @@ final class F1SyncMerge {
                     .put("delivery", snapshot.optString("delivery", "0"))
                     .put("discount", snapshot.optString("discount", "0"))
                     .put("serverRevision", change.getInt("revision"));
+                JSONObject privateData = snapshot.optJSONObject("privateData");
+                if (privateData != null) {
+                    if (privateData.optBoolean("incompleteLegacy")) sync.put("missingPrivateLegacy", true);
+                    for (String field : new String[]{"materialMarkup", "deliveryCost", "overhead", "otherCost"})
+                        if (privateData.has(field)) e.put(field, privateData.get(field));
+                }
                 if (legacy) {
                     p.put("workMarkupPercent", e.get("workMarkupPercent"))
                         .put("delivery", e.get("delivery")).put("discount", e.get("discount"));
+                    if (privateData != null) for (String field : new String[]{"materialMarkup", "deliveryCost", "overhead", "otherCost"})
+                        if (privateData.has(field)) p.put(field, privateData.get(field));
                     LocalEstimates.ensure(p);
                 }
             }
@@ -92,7 +100,11 @@ final class F1SyncMerge {
             if (deleted) remove(rows, id);
             else {
                 JSONObject item = find(rows, id);
-                if (item == null) { item = new JSONObject().put("id", id); rows.put(item); }
+                if (item == null) {
+                    if (snapshot.optJSONObject("privateData") == null)
+                        sync.put("missingPrivateLegacy", true);
+                    item = new JSONObject().put("id", id); rows.put(item);
+                }
                 item.put("syncId", id).put("name", snapshot.getString("title"))
                     .put("qty", snapshot.get("quantity")).put("price", snapshot.get("price"))
                     .put("unit", snapshot.optString("unit", ""));
@@ -105,6 +117,11 @@ final class F1SyncMerge {
                 }
                 if (!snapshot.isNull("catalogKey") && snapshot.has("catalogKey"))
                     item.put("key", snapshot.getString("catalogKey"));
+                JSONObject privateData = snapshot.optJSONObject("privateData");
+                if (privateData != null) {
+                    for (String field : new String[]{"cost", "materialCost", "materialTier", "materialNote", "materials", "kitOverrides"})
+                        if (privateData.has(field)) item.put(field, privateData.get(field));
+                }
             }
             if (legacy) LocalEstimates.ensure(owner);
         }

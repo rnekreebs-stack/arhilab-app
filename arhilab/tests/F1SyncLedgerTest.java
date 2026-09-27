@@ -24,7 +24,8 @@ public final class F1SyncLedgerTest {
             .put("lines", new JSONArray().put(work)).put("materials", new JSONArray().put(material))
             .put("delivery", 75.2).put("discount", 5.1).put("workMarkupPercent", "0")
             .put("materialMarkup", 8).put("tasks", new JSONArray()).put("payments", new JSONArray())
-            .put("notes", new JSONArray()).put("photos", new JSONArray()).put("estimatePhotos", new JSONArray());
+            .put("notes", new JSONArray().put(new JSONObject().put("text", "Legacy-only note")))
+            .put("photos", new JSONArray()).put("estimatePhotos", new JSONArray());
         JSONObject original = new JSONObject().put("schemaVersion", 3).put("users", new JSONArray())
             .put("projects", new JSONArray().put(project));
         JSONObject migrated = DataMigration.migrate(original);
@@ -50,7 +51,7 @@ public final class F1SyncLedgerTest {
         check(queue.length() == 4, "expected project, estimate, work and material");
         check(queue.getJSONObject(0).getString("entityType").equals("project"), "dependency ordering");
         check(queue.getJSONObject(1).getString("entityType").equals("estimate"), "dependency ordering");
-        check(!queue.toString().contains("\"cost\""), "internal cost leaked to feed");
+        check(!queue.getJSONObject(3).getJSONObject("payload").has("cost"), "cost escaped admin-only projection");
         if (args.length > 0) {
             JSONArray clientOps = new JSONArray();
             for (int i = 0; i < queue.length(); i++) {
@@ -112,7 +113,8 @@ public final class F1SyncLedgerTest {
                 .put("revision", 1).put("snapshot", new JSONObject(projected.getJSONObject(key).toString()).put("deletedAt", JSONObject.NULL)));
         }
         JSONObject copied = deviceB.getJSONArray("projects").getJSONObject(0);
-        check(!F1SyncLedger.hasPrivateLegacy(deviceB), "private cost leaked to ordinary change feed");
+        check(F1SyncLedger.hasPrivateLegacy(deviceB), "second device must flag incomplete legacy transfer");
+        check(copied.getJSONArray("lines").getJSONObject(0).getDouble("cost") == 45, "admin private cost not restored");
         check(copied.getJSONArray("estimates").length() == 1, "second device duplicate legacy estimate");
         check(copied.getJSONArray("lines").length() == 1 && copied.getJSONArray("materials").length() == 1, "second device rows missing");
         check(copied.getDouble("delivery") == 75.2 && copied.getDouble("discount") == 5.1, "second device total inputs differ");

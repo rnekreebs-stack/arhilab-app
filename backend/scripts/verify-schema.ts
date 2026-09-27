@@ -19,6 +19,8 @@ try {
   if(!range.rowCount) throw new Error('Estimate work markup range constraint missing');
   const financials=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name='estimates' AND column_name IN ('delivery_amount','discount_amount')");
   if(financials.rowCount!==2) throw new Error('Estimate delivery and discount missing');
+  const restricted=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name IN ('estimates','estimate_items') AND column_name='private_fields'");
+  if(restricted.rowCount!==2) throw new Error('Admin-only estimate fields missing');
   const a = randomUUID(), b = randomUUID(), project = randomUUID();
   const client=await pool.connect();
   try {
