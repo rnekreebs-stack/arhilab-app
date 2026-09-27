@@ -2,6 +2,7 @@ import { pool } from '../database/pool.js';
 import { HttpError } from '../middleware/errors.js';
 import type { Identity } from '../services/security.js';
 import { entityTypes,specification } from './registry.js';
+const MAX_BOOTSTRAP_ENTITIES = 2500;
 
 export async function snapshotForBootstrap(ctx:Identity,afterCursorRead?:()=>Promise<void>) {
   const client=await pool.connect();
@@ -14,13 +15,13 @@ export async function snapshotForBootstrap(ctx:Identity,afterCursorRead?:()=>Pro
       const spec=specification(type);
       if(!spec) continue;
       const files=type==='photo'||type==='document'?" AND (status='available' OR deleted_at IS NOT NULL)":'';
-      const rows=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE organization_id=$1${files} ORDER BY id LIMIT $2`,[ctx.organizationId,1001-entities.length]);
+      const rows=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE organization_id=$1${files} ORDER BY id LIMIT $2`,[ctx.organizationId,MAX_BOOTSTRAP_ENTITIES+1-entities.length]);
       for(const row of rows.rows) {
         const value:Record<string,unknown>={id:row.id,revision:Number(row.revision),deletedAt:row.deleted_at};
         for(const [field,column] of Object.entries(spec.fields)) value[field]=row[column];
         entities.push({entityType:type,entityId:String(row.id),revision:Number(row.revision),snapshot:value});
       }
-      if(entities.length>1000) throw new HttpError(413,'Snapshot exceeds page limit','snapshot_too_large');
+      if(entities.length>MAX_BOOTSTRAP_ENTITIES) throw new HttpError(413,'Snapshot exceeds page limit','snapshot_too_large');
     }
     await client.query('COMMIT');
     return {cursor:org.rows[0]?.sync_cursor??'0',entities};

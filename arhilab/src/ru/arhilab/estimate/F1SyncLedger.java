@@ -29,6 +29,33 @@ final class F1SyncLedger {
         return state;
     }
 
+    static boolean hasPrivateLegacy(JSONObject database) throws Exception {
+        JSONArray projects = database.getJSONArray("projects");
+        for (int p = 0; p < projects.length(); p++) {
+            JSONObject project = projects.getJSONObject(p);
+            for (String field : new String[]{"assigned", "deliveryCost", "overhead", "otherCost"})
+                if (project.has(field) && !project.optString(field).isEmpty() && !project.optString(field).equals("0")) return true;
+            for (String field : new String[]{"tasks", "payments", "notes", "photos", "estimatePhotos"})
+                if (project.optJSONArray(field) != null && project.getJSONArray(field).length() > 0) return true;
+            JSONArray estimates = project.optJSONArray("estimates");
+            if (estimates == null) continue;
+            for (int e = 0; e < estimates.length(); e++) {
+                JSONObject estimate = estimates.getJSONObject(e);
+                if (estimate.has("purchases") || estimate.optInt("materialMarkup", 8) != 8) return true;
+                for (String kind : new String[]{"lines", "materials"}) {
+                    JSONArray rows = estimate.optJSONArray(kind);
+                    if (rows == null) continue;
+                    for (int i = 0; i < rows.length(); i++) {
+                        JSONObject row = rows.getJSONObject(i);
+                        for (String field : new String[]{"cost", "materialCost", "materialTier", "kitOverrides", "materialNote", "materials"})
+                            if (row.has(field)) return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     private static void row(JSONObject rows, String type, String id, JSONObject payload) throws Exception {
         if (!id.matches("[0-9a-fA-F-]{36}")) throw new IllegalArgumentException("Неверный UUID строки");
         rows.put(type + ":" + id, payload);

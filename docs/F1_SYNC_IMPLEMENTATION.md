@@ -1,0 +1,13 @@
+# F1 Android estimate sync checkpoint
+
+Android local schema 4 preserves the 0.6.2 embedded estimate while adding a deterministic legacy estimate UUID and independent estimates. `F1SyncLedger` projects objects, estimates, works and materials to Stage 3 operation payloads. Changes to the encrypted JSON and the queue are committed together to `data.enc` with AES-GCM and the existing Android Keystore key. The queue stores immutable operation and idempotency UUIDs, base revisions and an outbox shadow. Invalid historical precision blocks projection visibly; it is never rounded to fit PostgreSQL. The original data remains local.
+
+`F1SyncTransport` sends admin operations over HTTPS and uses the existing backend authentication, refresh, push, pull and consistent snapshot endpoints. The new action in Android Settings starts synchronization on a background thread. Local saves never make a network request. A lost push response leaves the same operation for retry; a lost refresh response requires reauthentication rather than reusing a potentially consumed refresh token. The access and refresh tokens stay inside the encrypted local database and are excluded from backup and WebView state.
+
+`F1SyncMerge` applies the snapshot or a complete page of changes before persisting the associated cursor in the same encrypted write. It overlays supported fields without replacing locally stored 0.6.2 cost, kit, payment and photo fields. Incoming changes for an entity with a pending or conflicted local operation do not overwrite the local proposal. The conflict count is exposed to the UI; there is no automatic resolution. The server remains the permission authority; Android sends only with an authenticated server admin account.
+
+## Unresolved preservation boundary
+
+The ordinary Stage 3 change feed also serves manager and worker. It cannot currently carry internal `cost`, `materialCost`, `deliveryCost`, `overhead`, `otherCost` or full legacy kit and purchase data without exposing confidential fields. These fields remain in Android's encrypted original and ARHILAB2 backup; they are not reconstructed on another device by the F1 projection. The UI must not imply that the complete historical 0.6.2 record is synchronized. A tenant scoped, admin only transfer of these fields with independent authorization and data retention rules is required before F1 can be declared complete. Existing Stage 4 restricted archives are only created by its explicit migration protocol, and cannot be assumed to contain an Android outbox record.
+
+The node based Stage 5 file queue remains separate from this Android business transport. Android photo and document binary upload is not connected by this F1 adapter. Existing 0.6.2 PhotoStore and backup continue to hold local photos.

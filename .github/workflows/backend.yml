@@ -61,7 +61,8 @@ jobs:
           mkdir -p /tmp/arhilab-f1-tests
           javac -encoding UTF-8 -source 8 -target 8 -cp /tmp/arhilab-org-json.jar -d /tmp/arhilab-f1-tests \
             arhilab/src/ru/arhilab/estimate/{DataMigration,LocalEstimates,F1SyncLedger,F1SyncMerge,F1SyncTransport}.java arhilab/tests/F1SyncLedgerTest.java
-          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F1SyncLedgerTest /tmp/arhilab-f1-android-operations.json
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F1SyncLedgerTest /tmp/arhilab-f1-android-operations.json /tmp/arhilab-f1-money.json
+          node arhilab/tests/f1_legacy_total.cjs /tmp/arhilab-f1-money.json
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck

@@ -34,7 +34,14 @@ public final class F1SyncLedgerTest {
         check(legacy.getDouble("delivery") == 75.2 && legacy.getDouble("discount") == 5.1, "lost financial fields");
         check(legacy.getString("workMarkupPercent").equals("0"), "legacy markup changed");
         check(legacy.getJSONArray("lines").getJSONObject(0).getDouble("cost") == 45, "lost legacy cost");
+        check(F1SyncLedger.hasPrivateLegacy(migrated), "private legacy fields must be visibly incomplete on sync");
         check(legacy.getJSONArray("lines").getJSONObject(0).getString("syncId").equals(workId), "lost row identity");
+        if (args.length > 1) {
+            JSONObject moneyFixture = new JSONObject().put("before", original.getJSONArray("projects").getJSONObject(0))
+                .put("after", legacy);
+            java.nio.file.Files.write(java.nio.file.Paths.get(args[1]),
+                moneyFixture.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
         LocalEstimates.ensure(upgraded);
         check(upgraded.getJSONArray("estimates").length() == 1, "duplicate legacy estimate");
 
@@ -105,6 +112,7 @@ public final class F1SyncLedgerTest {
                 .put("revision", 1).put("snapshot", new JSONObject(projected.getJSONObject(key).toString()).put("deletedAt", JSONObject.NULL)));
         }
         JSONObject copied = deviceB.getJSONArray("projects").getJSONObject(0);
+        check(!F1SyncLedger.hasPrivateLegacy(deviceB), "private cost leaked to ordinary change feed");
         check(copied.getJSONArray("estimates").length() == 1, "second device duplicate legacy estimate");
         check(copied.getJSONArray("lines").length() == 1 && copied.getJSONArray("materials").length() == 1, "second device rows missing");
         check(copied.getDouble("delivery") == 75.2 && copied.getDouble("discount") == 5.1, "second device total inputs differ");

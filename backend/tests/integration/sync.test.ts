@@ -352,9 +352,11 @@ test('Java Android ledger serialization reaches PostgreSQL, survives Device B re
     assert.deepEqual(fixture.operations.map(x=>x.entityType),['project','estimate','estimateItem','estimateItem']);
     const [project,estimate]=fixture.operations;
     assert.ok(project&&estimate);
-    const creation=await push(fixture.operations,accessA);
+    const accessOwner=await login(orgA,adminA+'@test.example',randomUUID());
+    const creation=await push(fixture.operations,accessOwner);
+    assert.equal(creation.status,200);
     assert.deepEqual(creation.results.map(x=>x.status),Array(4).fill('applied'));
-    const lostResponse=await push(fixture.operations,accessA);
+    const lostResponse=await push(fixture.operations,accessOwner);
     assert.deepEqual(lostResponse.results.map(x=>x.status),Array(4).fill('duplicate'));
     const count=await pool.query<{total:string}>('SELECT count(*)::text AS total FROM estimate_items WHERE estimate_id=$1',[estimate.entityId]);
     assert.equal(count.rows[0]?.total,'2');
@@ -380,7 +382,7 @@ test('Java Android ledger serialization reaches PostgreSQL, survives Device B re
       const localOperation=op('estimate',estimate.entityId,'update',1,{workMarkupPercent:'20.00'});
       await deviceB.localWrite(estimate.entityId,{...synced,workMarkupPercent:'20.00'},
         {...localOperation,entityType:'estimate',entityId:estimate.entityId,operationType:'update',baseRevision:1,payload:{workMarkupPercent:'20.00'}});
-      const first=await push([op('estimate',estimate.entityId,'update',1,{workMarkupPercent:'10.00'})],accessA);
+      const first=await push([op('estimate',estimate.entityId,'update',1,{workMarkupPercent:'10.00'})],accessOwner);
       assert.equal(first.results[0]?.status,'applied');
       deviceB=await SyncCoordinator.open(store,transport,()=>true);
       assert.equal((await deviceB.syncNow()).state,'conflict');
@@ -391,4 +393,22 @@ test('Java Android ledger serialization reaches PostgreSQL, survives Device B re
       const stored=await pool.query<{work_markup_percent:string}>('SELECT work_markup_percent FROM estimates WHERE id=$1',[estimate.entityId]);
       assert.equal(stored.rows[0]?.work_markup_percent,'10.00');
     } finally {await rm(folder,{recursive:true,force:true});}
+});
+
+test('consistent bootstrap covers a large 0.6.2-scale estimate and 100 objects',async()=>{
+  const parent=randomUUID(),estimate=randomUUID();
+  await pool.query('INSERT INTO projects(id,organization_id,name) VALUES($1,$2,$3)',[parent,orgA,'Large estimate project']);
+  await pool.query('INSERT INTO estimates(id,organization_id,project_id,name) VALUES($1,$2,$3,$4)',[estimate,orgA,parent,'Large estimate']);
+  await pool.query(`INSERT INTO projects(id,organization_id,name)
+    SELECT gen_random_uuid(),$1,'Object '||n FROM generate_series(1,100) AS n`,[orgA]);
+  await pool.query(`INSERT INTO estimate_items(id,organization_id,estimate_id,title,quantity)
+    SELECT gen_random_uuid(),$1,$2,'Item '||n,1 FROM generate_series(1,1100) AS n`,[orgA,estimate]);
+  const snapshot=await request('/api/v1/sync/snapshot','GET',undefined,accessA2);
+  assert.equal(snapshot.status,200);
+  const entities=snapshot.body.entities as Array<{entityType:string;entityId:string}>;
+  assert.equal(entities.filter(x=>x.entityType==='estimateItem'&&x.entityId).length>=1100,true);
+  assert.equal(entities.filter(x=>x.entityType==='project').length>=101,true);
+  assert.equal((snapshot.body.cursor as string).length>0,true);
+  const other=await request('/api/v1/sync/snapshot','GET',undefined,accessB);
+  assert.equal((other.body.entities as Array<{entityId:string}>).some(x=>x.entityId===estimate),false);
 });
