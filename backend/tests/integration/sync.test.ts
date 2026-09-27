@@ -1,6 +1,7 @@
 import { after,before,test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import type { Server } from 'node:http';
 import { pool } from '../../src/database/pool.js';
 import { createApp } from '../../src/app.js';
@@ -9,6 +10,7 @@ let server:Server,base:string;
 const orgA=randomUUID(),orgB=randomUUID(),adminA=randomUUID(),adminB=randomUUID(),manager=randomUUID(),worker=randomUUID();
 const deviceA=randomUUID(),deviceA2=randomUUID(),deviceB=randomUUID();
 const password='stage three testing password 123';
+const {calc}=createRequire(import.meta.url)('../../../arhilab/assets/core.js') as {calc:(value:Record<string,unknown>)=>{total:number}};
 let accessA:string,accessA2:string,accessB:string,accessManager:string,accessWorker:string;
 type Operation={operationId:string;idempotencyKey:string;entityType:string;entityId:string;operationType:string;baseRevision:number;payload:object;occurredAt:string};
 const op=(entityType:string,entityId:string,operationType:string,baseRevision:number,payload:object):Operation=>({operationId:randomUUID(),idempotencyKey:randomUUID(),entityType,entityId,operationType,baseRevision,payload,occurredAt:new Date().toISOString()});
@@ -304,5 +306,36 @@ test('estimate work markup defaults to zero, validates range and persists stale 
   assert.equal(conflict.rows[0]?.server_snapshot.workMarkupPercent,'10.00');
   const pull=await request('/api/v1/sync/pull?cursor='+before,'GET',undefined,accessA2);
   assert.ok((pull.body.changes as Array<{entityId:string;snapshot:{workMarkupPercent:string}}>).some(x=>x.entityId===estimate&&x.snapshot.workMarkupPercent==='10.00'));
+  assert.equal(((await request('/api/v1/sync/snapshot','GET',undefined,accessB)).body.entities as Array<{entityId:string}>).some(x=>x.entityId===estimate),false);
+});
+
+test('F1 financial rows survive revisioned push, bootstrap and pull without leaking private costs',async()=>{
+  const project=randomUUID(),estimate=randomUUID(),work=randomUUID(),material=randomUUID();
+  const cursor=(await pool.query<{sync_cursor:string}>('SELECT sync_cursor FROM organizations WHERE id=$1',[orgA])).rows[0]?.sync_cursor;
+  const submitted=[
+    op('project',project,'create',0,{name:'Дом',address:'Улица 1',client:'Клиент',status:'Новый'}),
+    op('estimate',estimate,'create',0,{projectId:project,name:'Исходная смета',delivery:'75.20',discount:'5.10',workMarkupPercent:'10.00'}),
+    op('estimateItem',work,'create',0,{estimateId:estimate,title:'Работа',kind:'work',quantity:'1.2500',unit:'м²',price:'100.00',coefficient:'1.5000',autoMaterial:true,materialPrice:'20.00',catalogKey:'work-1'}),
+    op('estimateItem',material,'create',0,{estimateId:estimate,title:'Материал',kind:'material',quantity:'2.0000',unit:'шт.',price:'30.00'}),
+  ];
+  const first=await push(submitted,accessA2);
+  assert.deepEqual(first.results.map(x=>x.status),['applied','applied','applied','applied']);
+  assert.equal((await push(submitted,accessA2)).results.every(x=>x.status==='duplicate'),true);
+  const feed=await request('/api/v1/sync/pull?cursor='+cursor,'GET',undefined,accessManager);
+  assert.equal(feed.status,200);
+  const changes=feed.body.changes as Array<{entityId:string;snapshot:Record<string,unknown>}>;
+  assert.deepEqual(changes.filter(x=>[project,estimate,work,material].some(id=>id===x.entityId)).map(x=>x.entityId),[project,estimate,work,material]);
+  const e=changes.find(x=>x.entityId===estimate)?.snapshot;
+  const w=changes.find(x=>x.entityId===work)?.snapshot;
+  const m=changes.find(x=>x.entityId===material)?.snapshot;
+  assert.equal(e?.delivery,'75.20');assert.equal(e?.discount,'5.10');
+  assert.equal(w?.price,'100.00');assert.equal(w?.coefficient,'1.5000');
+  assert.equal(JSON.stringify(changes).includes('cost'),false);
+  assert.equal(calc({lines:[{price:w?.price,qty:w?.quantity,coef:w?.coefficient,autoMaterial:w?.autoMaterial,materialPrice:w?.materialPrice}],
+    materials:[{price:m?.price,qty:m?.quantity}],workMarkupPercent:e?.workMarkupPercent,delivery:Number(e?.delivery),discount:Number(e?.discount)}).total,361.35);
+  const other=await request('/api/v1/sync/snapshot','GET',undefined,accessManager);
+  assert.equal(other.status,200);
+  const entities=other.body.entities as Array<{entityId:string;snapshot:Record<string,unknown>}>;
+  assert.ok([project,estimate,work,material].every(id=>entities.some(x=>x.entityId===id)));
   assert.equal(((await request('/api/v1/sync/snapshot','GET',undefined,accessB)).body.entities as Array<{entityId:string}>).some(x=>x.entityId===estimate),false);
 });

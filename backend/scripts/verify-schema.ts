@@ -17,6 +17,8 @@ try {
   if(markup.rows[0]?.is_nullable!=='NO'||!markup.rows[0]?.column_default?.includes('0')) throw new Error('Estimate work markup must default to zero');
   const range=await pool.query("SELECT 1 FROM pg_constraint WHERE conrelid='estimates'::regclass AND conname='estimates_work_markup_range'");
   if(!range.rowCount) throw new Error('Estimate work markup range constraint missing');
+  const financials=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name='estimates' AND column_name IN ('delivery_amount','discount_amount')");
+  if(financials.rowCount!==2) throw new Error('Estimate delivery and discount missing');
   const a = randomUUID(), b = randomUUID(), project = randomUUID();
   const client=await pool.connect();
   try {
