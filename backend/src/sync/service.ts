@@ -36,6 +36,10 @@ function snapshot(row:Record<string,unknown>,fields:Record<string,string>) {
   for (const [name,column] of Object.entries(fields)) state[name]=row[column];
   return state;
 }
+function cents(value:unknown):bigint {
+  const [whole='0',fraction='']=String(value).split('.');
+  return BigInt(whole)*100n+BigInt((fraction+'00').slice(0,2));
+}
 async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise<{result:SyncResult;state?:Record<string,unknown>;table?:string}> {
   if(op.entityType==='photo'||op.entityType==='document') return {result:rejected(op,'unsupported','file_api_required')};
   const spec=specification(op.entityType);
@@ -47,6 +51,28 @@ async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise
   const found=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE id=$1 FOR NO KEY UPDATE`,[op.entityId]);
   const current=found.rows[0];
   if (current && current.organization_id !== ctx.organizationId) return {result:rejected(op,'authorization','entity_not_available')};
+  if (op.entityType==='payment' && op.operationType!=='delete') {
+    const amount=payload.amount??current?.amount;
+    const paid=payload.paidAmount??current?.paid_amount;
+    if (amount!==undefined && cents(amount)<=0n || paid!==undefined && paid!==null && cents(paid)>cents(amount))
+      return {result:rejected(op,'validation','invalid_payment_amount')};
+    const estimateId=payload.estimateId===undefined?current?.estimate_id:payload.estimateId;
+    if (estimateId) {
+      const owner=await client.query<{project_id:string;currency:string|null}>(
+        'SELECT project_id,currency FROM estimates WHERE organization_id=$1 AND id=$2 AND deleted_at IS NULL',
+        [ctx.organizationId,estimateId]);
+      const estimate=owner.rows[0];
+      if (!estimate || estimate.project_id!==(payload.projectId??current?.project_id) ||
+          !estimate.currency || estimate.currency.trim()!==(payload.currency??current?.currency) ||
+          (payload.kind??current?.payment_kind)!=='income')
+        return {result:rejected(op,'validation','invalid_payment_context')};
+    }
+  }
+  if (op.entityType==='estimate' && payload.currency!==undefined && current && op.operationType!=='delete') {
+    const linked=await client.query('SELECT 1 FROM payments WHERE organization_id=$1 AND estimate_id=$2 AND deleted_at IS NULL AND currency IS DISTINCT FROM $3 LIMIT 1',
+      [ctx.organizationId,op.entityId,payload.currency]);
+    if(linked.rowCount) return {result:rejected(op,'validation','currency_has_payments')};
+  }
   if (op.operationType==='create') {
     if (current) return {result:conflict(op,Number(current.revision)),state:snapshot(current,spec.fields)};
     if (op.baseRevision!==0) return {result:rejected(op,'validation','invalid_base_revision')};
@@ -87,6 +113,9 @@ export async function applyOperation(ctx:Identity,op:SyncOperation):Promise<Sync
     const reusedId=await client.query('SELECT id FROM sync_operations WHERE id=$1',[op.operationId]);
     if (reusedId.rowCount) return rejected(op,'conflict','operation_id_reused');
     const {result,state}=await mutation(client,ctx,op);
+    if(op.entityType==='payment' && result.status==='applied') await client.query(
+      'INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
+      [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`payment.${op.operationType}`,'payment',op.entityId]);
     await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result,conflict_metadata)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,1,$11,$12,$13,$14)`,[
       op.operationId,ctx.organizationId,ctx.deviceId,op.entityType,op.entityId,op.operationType,op.baseRevision,
@@ -117,6 +146,9 @@ export async function applyResolution(client:PoolClient,ctx:Identity,entityType:
   const {result,state}=await mutation(client,ctx,op);
   if(result.status==='rejected' && result.code==='invalid_reference') throw new HttpError(400,'Invalid reference','invalid_reference');
   if(result.status!=='applied'||!state) throw new HttpError(409,'Resolution stale','resolution_stale');
+  if(entityType==='payment') await client.query(
+    'INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
+    [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`payment.${kind}`,'payment',entityId]);
   await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,'applied',$9,1,$10,$11,$12)`,[op.operationId,ctx.organizationId,ctx.deviceId,entityType,entityId,kind,baseRevision,result.resultingRevision,op.idempotencyKey,op.occurredAt,requestHash(op),JSON.stringify(result)]);
   const cursor=await client.query<{sync_cursor:string}>('UPDATE organizations SET sync_cursor=sync_cursor+1 WHERE id=$1 RETURNING sync_cursor',[ctx.organizationId]);
@@ -132,5 +164,6 @@ export async function pullChanges(ctx:Identity,cursor:string,limit:number) {
   const changes=await pool.query<{sequence:string;entity_type:string;entity_id:string;revision:string;operation_type:string;snapshot:Record<string,unknown>;source_device_id:string;sync_operation_id:string;changed_at:Date}>(`SELECT sequence,entity_type,entity_id,revision,operation_type,snapshot,source_device_id,sync_operation_id,changed_at FROM sync_changes WHERE organization_id=$1 AND sequence>$2 ORDER BY sequence LIMIT $3`,[ctx.organizationId,cursor,limit+1]);
   const hasMore=changes.rows.length>limit;
   const page=changes.rows.slice(0,limit);
-  return {changes:page.map(row=>({sequence:row.sequence,entityType:row.entity_type,entityId:row.entity_id,revision:Number(row.revision),operationType:row.operation_type,snapshot:visibleSnapshot(ctx.role,row.snapshot),sourceDeviceId:row.source_device_id,operationId:row.sync_operation_id,changedAt:row.changed_at.toISOString()})),nextCursor:page.at(-1)?.sequence ?? cursor,hasMore};
+  return {changes:page.filter(row=>ctx.role==='admin'||row.entity_type!=='payment')
+    .map(row=>({sequence:row.sequence,entityType:row.entity_type,entityId:row.entity_id,revision:Number(row.revision),operationType:row.operation_type,snapshot:visibleSnapshot(ctx.role,row.snapshot),sourceDeviceId:row.source_device_id,operationId:row.sync_operation_id,changedAt:row.changed_at.toISOString()})),nextCursor:page.at(-1)?.sequence ?? cursor,hasMore};
 }

@@ -97,6 +97,7 @@ final class F1SyncLedger {
                     .put("workMarkupPercent", decimal(estimate.opt("workMarkupPercent"), 2))
                     .put("delivery", decimal(estimate.opt("delivery"), 2))
                     .put("discount", decimal(estimate.opt("discount"), 2))
+                    .put("currency", estimate.has("currency") ? estimate.getString("currency") : JSONObject.NULL)
                     .put("privateData", estimatePrivate(estimate, incompleteLegacy)));
                 for (String kind : new String[]{"lines", "materials"}) {
                     JSONArray items = estimate.optJSONArray(kind);
@@ -122,6 +123,25 @@ final class F1SyncLedger {
                         row(rows, "estimateItem", item.getString("syncId"), payload);
                     }
                 }
+            }
+            JSONArray payments = project.optJSONArray("payments");
+            if (payments != null) for (int i = 0; i < payments.length(); i++) {
+                JSONObject payment = payments.getJSONObject(i);
+                String currency = payment.optString("currency", "");
+                if (!currency.matches("[A-Z]{3}") ||
+                    !payment.optString("kind", "").matches("income|expense") ||
+                    !payment.optString("date", "").matches("\\d{4}-\\d{2}-\\d{2}")) continue;
+                JSONObject payload = new JSONObject().put("projectId", projectId)
+                    .put("estimateId", payment.has("estimateId") ? payment.getString("estimateId") : JSONObject.NULL)
+                    .put("amount", decimal(payment.get("amount"), 2))
+                    .put("paidAmount", decimal(payment.has("paid") ? payment.get("paid") : payment.get("amount"), 2))
+                    .put("currency", currency).put("kind", payment.getString("kind"))
+                    .put("businessDate", payment.getString("date"))
+                    .put("planDate", payment.optString("planDate", "").isEmpty() ? JSONObject.NULL : payment.getString("planDate"))
+                    .put("actualDate", payment.optString("actualDate", "").isEmpty() ? JSONObject.NULL : payment.getString("actualDate"))
+                    .put("comment", payment.optString("note", ""))
+                    .put("paymentType", payment.optString("type", ""));
+                row(rows, "payment", payment.getString("id"), payload);
             }
         }
         return rows;
@@ -188,7 +208,7 @@ final class F1SyncLedger {
         ArrayList<String> changed = new ArrayList<>();
         for (Iterator<String> keys = rows.keys(); keys.hasNext();) changed.add(keys.next());
         // Store in foreign-key dependency order even though org.json does not promise insertion order.
-        for (String type : new String[]{"project", "estimate", "estimateItem"}) {
+        for (String type : new String[]{"project", "estimate", "estimateItem", "payment"}) {
             for (String key : changed) {
                 if (!key.startsWith(type + ":")) continue;
                 JSONObject payload = rows.getJSONObject(key);
@@ -202,14 +222,22 @@ final class F1SyncLedger {
             String key = keys.next();
             if (!rows.has(key)) removed.add(key);
         }
-        for (String type : new String[]{"estimateItem", "estimate", "project"}) {
+        for (String type : new String[]{"payment", "estimateItem", "estimate", "project"}) {
             for (String key : removed) {
                 if (!key.startsWith(type + ":")) continue;
                 enqueue(operations, revisions, key, "delete", new JSONObject());
                 shadow.remove(key);
             }
         }
-        state.put("syncState", operations.length() == 0 ? "idle" : "pending_changes").remove("lastErrorCategory");
+        boolean needsCurrency = false;
+        for (int p = 0; p < database.getJSONArray("projects").length(); p++) {
+            JSONArray payments = database.getJSONArray("projects").getJSONObject(p).optJSONArray("payments");
+            if (payments != null) for (int i = 0; i < payments.length(); i++)
+                if (!payments.getJSONObject(i).optString("currency", "").matches("[A-Z]{3}")) needsCurrency = true;
+        }
+        state.put("paymentCurrencyRequired", needsCurrency)
+            .put("syncState", needsCurrency ? "pending_changes" : operations.length() == 0 ? "idle" : "pending_changes")
+            .remove("lastErrorCategory");
     }
 
     static void acknowledge(JSONObject database, JSONObject result) throws Exception {

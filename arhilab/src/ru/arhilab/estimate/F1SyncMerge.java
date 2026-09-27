@@ -22,7 +22,7 @@ final class F1SyncMerge {
 
     static void apply(JSONObject db, JSONObject change) throws Exception {
         String type = change.getString("entityType"), id = change.getString("entityId");
-        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem")) return;
+        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment")) return;
         JSONObject sync = F1SyncLedger.state(db);
         String key = type + ":" + id;
         JSONArray jobs = sync.getJSONArray("operations");
@@ -68,6 +68,7 @@ final class F1SyncMerge {
                     .put("delivery", snapshot.optString("delivery", "0"))
                     .put("discount", snapshot.optString("discount", "0"))
                     .put("serverRevision", change.getInt("revision"));
+                if (!snapshot.isNull("currency") && snapshot.has("currency")) e.put("currency", snapshot.getString("currency"));
                 JSONObject privateData = snapshot.optJSONObject("privateData");
                 if (privateData != null) {
                     if (privateData.optBoolean("incompleteLegacy")) sync.put("missingPrivateLegacy", true);
@@ -81,6 +82,25 @@ final class F1SyncMerge {
                         if (privateData.has(field)) p.put(field, privateData.get(field));
                     LocalEstimates.ensure(p);
                 }
+            }
+        } else if (type.equals("payment")) {
+            JSONObject p = find(projects, snapshot.getString("projectId"));
+            if (p == null) throw new IllegalStateException("Отсутствует объект платежа");
+            JSONArray payments = p.getJSONArray("payments");
+            if (deleted) remove(payments, id);
+            else {
+                JSONObject payment = find(payments, id);
+                if (payment == null) {payment = new JSONObject().put("id", id);payments.put(payment);}
+                payment.put("amount", snapshot.get("amount"))
+                    .put("paid", snapshot.isNull("paidAmount") ? snapshot.get("amount") : snapshot.get("paidAmount"))
+                    .put("currency", snapshot.getString("currency"))
+                    .put("date", snapshot.optString("businessDate", ""))
+                    .put("note", snapshot.optString("comment", ""))
+                    .put("type", snapshot.optString("paymentType", ""));
+                if(!snapshot.isNull("kind")&&snapshot.has("kind"))payment.put("kind",snapshot.getString("kind"));
+                for (String field : new String[]{"estimateId", "planDate", "actualDate"})
+                    if (snapshot.has(field) && !snapshot.isNull(field)) payment.put(field, snapshot.get(field));
+                    else payment.remove(field);
             }
         } else {
             String estimateId = snapshot.getString("estimateId");

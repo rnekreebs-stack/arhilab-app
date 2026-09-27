@@ -12,6 +12,7 @@ export async function snapshotForBootstrap(ctx:Identity,afterCursorRead?:()=>Pro
     if(afterCursorRead) await afterCursorRead();
     const entities:Array<{entityType:string;entityId:string;revision:number;snapshot:Record<string,unknown>}>=[];
     for(const type of entityTypes) {
+      if(type==='payment' && ctx.role!=='admin') continue;
       const spec=specification(type);
       if(!spec) continue;
       const files=type==='photo'||type==='document'?" AND (status='available' OR deleted_at IS NOT NULL)":'';

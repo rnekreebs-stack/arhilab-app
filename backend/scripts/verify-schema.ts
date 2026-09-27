@@ -21,6 +21,10 @@ try {
   if(financials.rowCount!==2) throw new Error('Estimate delivery and discount missing');
   const restricted=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name IN ('estimates','estimate_items') AND column_name='private_fields'");
   if(restricted.rowCount!==2) throw new Error('Admin-only estimate fields missing');
+  const payment=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name='payments' AND column_name IN ('estimate_id','payment_kind','paid_amount','business_date','comment')");
+  if(payment.rowCount!==5) throw new Error('F2 payment fields missing');
+  const currency=await pool.query<{is_nullable:string}>("SELECT is_nullable FROM information_schema.columns WHERE table_name='estimates' AND column_name='currency'");
+  if(currency.rows[0]?.is_nullable!=='YES') throw new Error('Legacy estimate currency must be unresolved');
   const a = randomUUID(), b = randomUUID(), project = randomUUID();
   const client=await pool.connect();
   try {
