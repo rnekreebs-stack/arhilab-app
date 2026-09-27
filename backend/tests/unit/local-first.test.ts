@@ -41,7 +41,8 @@ test('conflict is isolated from other operations and auth failure preserves pend
   const dir=await mkdtemp(join(tmpdir(),'arhilab-client-test-'));
   try {
     const store=new JsonFileSyncStore(join(dir,'queue.json'));let authorized=false;
-    const transport:SyncTransport={snapshot:async()=>({cursor:'0',entities:[]}),pull:async cursor=>({changes:[],nextCursor:cursor,hasMore:false}),
+    const transport:SyncTransport={snapshot:async()=>({cursor:'0',entities:[]}),pull:async cursor=>({changes:authorized?
+      [{entityType:'project',entityId:'conflict',revision:2,snapshot:{name:'server version'}}]:[],nextCursor:cursor,hasMore:false}),
       push:async ops=>{if(!authorized)throw new TransportFailure(401);return {results:[{operationId:ops[0]!.operationId,
         status:ops[0]!.entityId==='conflict'?'duplicate':'applied',...(ops[0]!.entityId==='conflict'?{originalStatus:'conflict'}:{})}]};},
       refresh:async()=>false,createIntent:async()=>({id:'unused'}),upload:async()=>{},finalize:async()=>{},download:async()=>Buffer.alloc(0)};
@@ -51,5 +52,6 @@ test('conflict is isolated from other operations and auth failure preserves pend
     assert.equal((await client.syncNow()).state,'auth_required');assert.equal(client.summary().pendingOperations,2);
     authorized=true;assert.equal((await client.syncNow()).state,'conflict');
     assert.equal(client.summary().pendingOperations,0);assert.equal(client.summary().conflicts,1);
+    assert.deepEqual(client.entities.conflict,{name:'conflict'},'pull must retain conflicted local proposal');
   } finally {await rm(dir,{recursive:true,force:true});}
 });

@@ -95,6 +95,23 @@ final class F1SyncLedger {
         return rows;
     }
 
+    private static void enqueue(JSONArray operations, JSONObject revisions, String key, String operationType, JSONObject payload) throws Exception {
+        String type = key.substring(0, key.indexOf(':'));
+        String id = key.substring(type.length() + 1);
+        int base = revisions.optInt(key, 0);
+        for (int i = 0; i < operations.length(); i++) {
+            JSONObject pending = operations.getJSONObject(i);
+            if (pending.getString("entityType").equals(type) && pending.getString("entityId").equals(id)) base++;
+        }
+        String uuid = UUID.randomUUID().toString();
+        operations.put(new JSONObject().put("operationId", uuid).put("idempotencyKey", uuid)
+            .put("entityType", type).put("entityId", id)
+            .put("operationType", operationType).put("baseRevision", base)
+            .put("payload", new JSONObject(payload.toString()))
+            .put("occurredAt", java.time.Instant.now().toString())
+            .put("state", "pending"));
+    }
+
     static void capture(JSONObject database) throws Exception {
         JSONObject state = state(database), rows;
         try { rows = projection(database); }
@@ -113,21 +130,51 @@ final class F1SyncLedger {
                 if (!key.startsWith(type + ":")) continue;
                 JSONObject payload = rows.getJSONObject(key);
                 if (shadow.has(key) && equal(shadow.getJSONObject(key), payload)) continue;
-                int base = revisions.optInt(key, 0);
-                for (int i = 0; i < operations.length(); i++) {
-                    JSONObject pending = operations.getJSONObject(i);
-                    if (pending.getString("entityType").equals(type) && pending.getString("entityId").equals(key.substring(type.length() + 1))) base++;
-                }
-                String uuid = UUID.randomUUID().toString();
-                operations.put(new JSONObject().put("operationId", uuid).put("idempotencyKey", uuid)
-                    .put("entityType", type).put("entityId", key.substring(type.length() + 1))
-                    .put("operationType", shadow.has(key) ? "update" : "create")
-                    .put("baseRevision", base).put("payload", new JSONObject(payload.toString()))
-                    .put("occurredAt", new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", java.util.Locale.ROOT).format(new java.util.Date()))
-                    .put("state", "pending"));
+                enqueue(operations, revisions, key, shadow.has(key) ? "update" : "create", payload);
                 shadow.put(key, new JSONObject(payload.toString()));
             }
         }
+        ArrayList<String> removed = new ArrayList<>();
+        for (Iterator<String> keys = shadow.keys(); keys.hasNext();) {
+            String key = keys.next();
+            if (!rows.has(key)) removed.add(key);
+        }
+        for (String type : new String[]{"estimateItem", "estimate", "project"}) {
+            for (String key : removed) {
+                if (!key.startsWith(type + ":")) continue;
+                enqueue(operations, revisions, key, "delete", new JSONObject());
+                shadow.remove(key);
+            }
+        }
         state.put("syncState", operations.length() == 0 ? "idle" : "pending_changes").remove("lastErrorCategory");
+    }
+
+    static void acknowledge(JSONObject database, JSONObject result) throws Exception {
+        JSONObject state = state(database), revisions = state.getJSONObject("revisions");
+        JSONArray operations = state.getJSONArray("operations");
+        for (int i = 0; i < operations.length(); i++) {
+            JSONObject pending = operations.getJSONObject(i);
+            if (!pending.getString("operationId").equals(result.optString("operationId"))) continue;
+            String status = result.optString("status");
+            if (status.equals("conflict") || status.equals("duplicate") && result.optString("originalStatus").equals("conflict")) {
+                pending.put("state", "conflict").put("conflictId", result.optString("conflictId"));
+                JSONArray conflicts = state.getJSONArray("conflicts");
+                boolean present = false;
+                for (int j = 0; j < conflicts.length(); j++)
+                    if (conflicts.getString(j).equals(pending.getString("operationId"))) present = true;
+                if (!present) conflicts.put(pending.getString("operationId"));
+                state.put("syncState", "conflict");
+            } else if (status.equals("applied") || status.equals("duplicate") && result.optString("originalStatus").equals("applied")) {
+                String key = pending.getString("entityType") + ":" + pending.getString("entityId");
+                revisions.put(key, result.getInt("resultingRevision"));
+                operations.remove(i);
+                if (operations.length() == 0) state.put("syncState", "idle");
+            } else {
+                pending.put("state", "failed");
+                state.put("syncState", "error").put("lastErrorCategory", result.optString("errorClass", "server_rejected"));
+            }
+            return;
+        }
+        throw new IllegalArgumentException("Unknown operation result");
     }
 }

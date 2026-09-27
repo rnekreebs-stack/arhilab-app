@@ -2,6 +2,7 @@ package ru.arhilab.estimate;
 import android.app.*;import android.os.*;import android.content.*;import android.net.Uri;import android.webkit.*;import android.print.*;import android.security.keystore.*;import org.json.*;import java.io.*;import java.nio.charset.StandardCharsets;import java.security.*;import java.util.*;import javax.crypto.*;import javax.crypto.spec.*;
 public class MainActivity extends Activity {
  WebView web,printWeb; JSONObject db,catalog; String userId=null; byte[] exportBytes=null; char[] pendingRestorePassword=null,cloudPassword=null; CloudSync cloudClient=null; PhotoStore images=null; int failures=0,skippedBackupPhotos=0;long blockedUntil=0; String pendingProject="",pendingReceiptRef="",pendingReceiptType="",startupWarning="";
+ final Bridge nativeBridge=new Bridge(); volatile boolean f1WorkerRunning=false;
  String read(InputStream in)throws Exception {ByteArrayOutputStream b=new ByteArrayOutputStream();byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)b.write(buf,0,n);in.close();return b.toString("UTF-8");}
  byte[] readBytes(InputStream in)throws Exception {try(InputStream src=in;ByteArrayOutputStream b=new ByteArrayOutputStream()){byte[] buf=new byte[8192];int n;while((n=src.read(buf))!=-1)b.write(buf,0,n);return b.toByteArray();}}
  SecretKey key()throws Exception {KeyStore k=KeyStore.getInstance("AndroidKeyStore");k.load(null);if(!k.containsAlias("arhilab-data")){KeyGenerator g=KeyGenerator.getInstance("AES","AndroidKeyStore");g.init(new KeyGenParameterSpec.Builder("arhilab-data",KeyProperties.PURPOSE_ENCRYPT|KeyProperties.PURPOSE_DECRYPT).setBlockModes("GCM").setEncryptionPaddings("NoPadding").build());g.generateKey();}return (SecretKey)k.getKey("arhilab-data",null);}
@@ -22,7 +23,7 @@ public class MainActivity extends Activity {
  JSONObject fullBackupContent()throws Exception{JSONObject out=backupContent();if(skippedBackupPhotos>0)throw new IOException("Недоступно фото: "+skippedBackupPhotos+". Полная копия не создана.");JSONArray users=new JSONArray();for(int i=0;i<db.getJSONArray("users").length();i++){JSONObject u=new JSONObject(db.getJSONArray("users").getJSONObject(i).toString());u.remove("sessionHash");users.put(u);}out.put("format","Arhilab-2").put("schemaVersion",DataMigration.CURRENT).put("users",users);JSONObject settings=db.optJSONObject("settings");if(settings!=null)out.put("settings",new JSONObject(settings.toString()));return out;}
  String diagnostics()throws Exception{JSONObject report=DataIntegrity.check(db,catalog);JSONArray issues=report.getJSONArray("issues"),ps=db.getJSONArray("projects");for(int i=0;i<ps.length();i++){JSONObject p=ps.getJSONObject(i);for(String arr:new String[]{"photos","estimatePhotos"}){JSONArray rows=p.optJSONArray(arr);if(rows!=null)for(int j=0;j<rows.length();j++){JSONObject row=rows.getJSONObject(j);if(!row.has("data")&&row.has("id")&&!photos().exists(row.optString("id")))issues.put("Фото объекта "+p.optString("name")+": файл не найден, строка "+(j+1));}}}return report.toString();}
  void recordError(String action,Exception e){try{File file=new File(getFilesDir(),"errors.log");String msg=new Date()+" | 0.6.2 | "+action.replaceAll("[^a-zA-Z]","")+" | "+e.getClass().getSimpleName()+" | "+android.util.Log.getStackTraceString(e).replaceAll("(?i)(password|token|secret)[^\\n]*","[скрыто]")+"\n";java.nio.file.Files.write(file.toPath(),msg.getBytes(StandardCharsets.UTF_8),java.nio.file.StandardOpenOption.CREATE,java.nio.file.StandardOpenOption.APPEND);if(file.length()>500000){byte[] recent=java.nio.file.Files.readAllBytes(file.toPath());java.nio.file.Files.write(file.toPath(),Arrays.copyOfRange(recent,recent.length-250000,recent.length));}}catch(Exception ignored){}}
- public void onCreate(Bundle b){super.onCreate(b);try{load();}catch(Exception e){new AlertDialog.Builder(this).setTitle("Ошибка открытия базы").setMessage("Данные не перезаписаны. "+e.getMessage()).setPositiveButton("Закрыть",(d,w)->finish()).show();return;}web=new WebView(this);web.setBackgroundColor(0xfff2f3ef);web.getSettings().setJavaScriptEnabled(true);web.getSettings().setAllowFileAccess(false);web.getSettings().setAllowContentAccess(false);web.getSettings().setDomStorageEnabled(false);web.setWebViewClient(new WebViewClient(){public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return true;}public void onPageFinished(WebView v,String url){if(!startupWarning.isEmpty()){String message=startupWarning;startupWarning="";new AlertDialog.Builder(MainActivity.this).setTitle("Проверка фотографий").setMessage(message).setPositiveButton("Понятно",null).show();}}});web.setWebChromeClient(new WebChromeClient());web.addJavascriptInterface(new Bridge(),"Native");setContentView(web);web.setOnApplyWindowInsetsListener((v,in)->{v.setPadding(in.getSystemWindowInsetLeft(),in.getSystemWindowInsetTop(),in.getSystemWindowInsetRight(),in.getSystemWindowInsetBottom());return in.consumeSystemWindowInsets();});web.loadUrl("file:///android_asset/index.html");}
+ public void onCreate(Bundle b){super.onCreate(b);try{load();}catch(Exception e){new AlertDialog.Builder(this).setTitle("Ошибка открытия базы").setMessage("Данные не перезаписаны. "+e.getMessage()).setPositiveButton("Закрыть",(d,w)->finish()).show();return;}web=new WebView(this);web.setBackgroundColor(0xfff2f3ef);web.getSettings().setJavaScriptEnabled(true);web.getSettings().setAllowFileAccess(false);web.getSettings().setAllowContentAccess(false);web.getSettings().setDomStorageEnabled(false);web.setWebViewClient(new WebViewClient(){public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return true;}public void onPageFinished(WebView v,String url){if(!startupWarning.isEmpty()){String message=startupWarning;startupWarning="";new AlertDialog.Builder(MainActivity.this).setTitle("Проверка фотографий").setMessage(message).setPositiveButton("Понятно",null).show();}}});web.setWebChromeClient(new WebChromeClient());web.addJavascriptInterface(nativeBridge,"Native");setContentView(web);web.setOnApplyWindowInsetsListener((v,in)->{v.setPadding(in.getSystemWindowInsetLeft(),in.getSystemWindowInsetTop(),in.getSystemWindowInsetRight(),in.getSystemWindowInsetBottom());return in.consumeSystemWindowInsets();});web.loadUrl("file:///android_asset/index.html");}
  JSONObject find(JSONArray a,String id)throws Exception{for(int i=0;i<a.length();i++)if(a.getJSONObject(i).optString("id").equals(id))return a.getJSONObject(i);throw new Exception("Запись не найдена");}
  JSONObject user()throws Exception{if(userId==null)throw new Exception("Войдите в приложение");return find(db.getJSONArray("users"),userId);}
  String role()throws Exception{return user().getString("role");}
@@ -33,7 +34,7 @@ public class MainActivity extends Activity {
  JSONObject safeUser(JSONObject u)throws Exception{return new JSONObject().put("id",u.getString("id")).put("name",u.getString("name")).put("login",u.getString("login")).put("role",u.getString("role"));}
  JSONObject project(String id)throws Exception{JSONObject p=find(db.getJSONArray("projects"),id);if(role().equals("worker")&&!p.optString("assigned").equals(userId))throw new Exception("Объект не назначен вам");return p;}
  void stripCosts(JSONObject p)throws Exception{for(String k:new String[]{"deliveryCost","overhead","otherCost","purchases"})p.remove(k);for(String arr:new String[]{"lines","materials"}){JSONArray a=p.optJSONArray(arr);if(a!=null)for(int i=0;i<a.length();i++){a.getJSONObject(i).remove("cost");a.getJSONObject(i).remove("materialCost");}}JSONArray visible=new JSONArray();JSONArray payments=p.optJSONArray("payments");if(payments!=null)for(int i=0;i<payments.length();i++)if(payments.getJSONObject(i).optString("kind").equals("income"))visible.put(payments.getJSONObject(i));p.put("payments",visible);JSONArray estimates=p.optJSONArray("estimates");if(estimates!=null)for(int i=0;i<estimates.length();i++)stripCosts(estimates.getJSONObject(i));}
- JSONObject state()throws Exception{String r=role();JSONObject out=new JSONObject().put("user",safeUser(user()));JSONArray ps=new JSONArray();for(int i=0;i<db.getJSONArray("projects").length();i++){JSONObject p=new JSONObject(db.getJSONArray("projects").getJSONObject(i).toString());if(r.equals("worker")){if(!p.optString("assigned").equals(userId))continue;JSONObject q=new JSONObject();for(String k:new String[]{"id","name","address","status","assigned","tasks","notes","photos"})if(p.has(k))q.put(k,p.get(k));p=q;}else if(!r.equals("admin"))stripCosts(p);if(!r.equals("admin")){JSONArray source=p.optJSONArray("photos"),visible=new JSONArray();if(source!=null)for(int j=0;j<source.length();j++)if(!source.getJSONObject(j).has("purchaseRef"))visible.put(source.getJSONObject(j));p.put("photos",visible);}ps.put(p);}out.put("projects",ps);JSONArray us=new JSONArray();if(!r.equals("worker"))for(int i=0;i<db.getJSONArray("users").length();i++)us.put(safeUser(db.getJSONArray("users").getJSONObject(i)));out.put("users",us);JSONObject f1=db.optJSONObject("f1Sync");out.put("syncSummary",new JSONObject().put("state",f1==null?"offline":f1.optString("syncState","pending_changes")).put("pendingOperations",f1==null?0:f1.optJSONArray("operations").length()).put("conflicts",f1==null?0:f1.optJSONArray("conflicts").length()).put("lastSuccessfulSync",f1==null?JSONObject.NULL:f1.opt("lastSuccessfulSync")));if(r.equals("admin")){JSONObject info=db.optJSONObject("cloud");out.put("cloud",new JSONObject().put("url",info==null?"":info.optString("url")).put("revision",info==null?-1:info.optInt("revision",-1)).put("dirty",info!=null&&info.optBoolean("dirty")).put("connected",cloudClient!=null));}return out;}
+ JSONObject state()throws Exception{String r=role();JSONObject out=new JSONObject().put("user",safeUser(user()));JSONArray ps=new JSONArray();for(int i=0;i<db.getJSONArray("projects").length();i++){JSONObject p=new JSONObject(db.getJSONArray("projects").getJSONObject(i).toString());if(r.equals("worker")){if(!p.optString("assigned").equals(userId))continue;JSONObject q=new JSONObject();for(String k:new String[]{"id","name","address","status","assigned","tasks","notes","photos"})if(p.has(k))q.put(k,p.get(k));p=q;}else if(!r.equals("admin"))stripCosts(p);if(!r.equals("admin")){JSONArray source=p.optJSONArray("photos"),visible=new JSONArray();if(source!=null)for(int j=0;j<source.length();j++)if(!source.getJSONObject(j).has("purchaseRef"))visible.put(source.getJSONObject(j));p.put("photos",visible);}ps.put(p);}out.put("projects",ps);JSONArray us=new JSONArray();if(!r.equals("worker"))for(int i=0;i<db.getJSONArray("users").length();i++)us.put(safeUser(db.getJSONArray("users").getJSONObject(i)));out.put("users",us);JSONObject f1=db.optJSONObject("f1Sync");out.put("syncSummary",new JSONObject().put("state",f1==null?"offline":f1.optString("syncState","pending_changes")).put("pendingOperations",f1==null?0:f1.optJSONArray("operations").length()).put("connected",f1!=null&&f1.has("url")).put("running",f1WorkerRunning).put("conflicts",f1==null?0:f1.optJSONArray("conflicts").length()).put("lastSuccessfulSync",f1==null?JSONObject.NULL:f1.opt("lastSuccessfulSync")));if(r.equals("admin")){JSONObject info=db.optJSONObject("cloud");out.put("cloud",new JSONObject().put("url",info==null?"":info.optString("url")).put("revision",info==null?-1:info.optInt("revision",-1)).put("dirty",info!=null&&info.optBoolean("dirty")).put("connected",cloudClient!=null));}return out;}
  JSONObject visibleCatalog(int percent)throws Exception{String r=role();if(r.equals("worker"))return new JSONObject().put("works",new JSONArray()).put("materials",new JSONArray());JSONObject c=new JSONObject(catalog.toString());for(int i=0;i<c.getJSONArray("works").length();i++){JSONObject w=c.getJSONArray("works").getJSONObject(i);JSONObject tiers=w.optJSONObject("tiers");if(tiers!=null)for(String tier:new String[]{"economy","standard","premium"}){JSONObject kit=tiers.getJSONObject(tier);kit.put("materialPrice",MaterialMarkup.price(kit.getDouble("materialCost"),percent));}}for(int i=0;i<c.getJSONArray("materials").length();i++){JSONObject m=c.getJSONArray("materials").getJSONObject(i);m.put("price",MaterialMarkup.price(m.getDouble("cost"),percent));}if(!r.equals("admin")){for(String arr:new String[]{"works","materials"})for(int i=0;i<c.getJSONArray(arr).length();i++){c.getJSONArray(arr).getJSONObject(i).remove("cost");JSONObject item=c.getJSONArray(arr).getJSONObject(i);item.remove("materialCost");JSONObject tiers=item.optJSONObject("tiers");if(tiers!=null)for(String tier:new String[]{"economy","standard","premium"})tiers.getJSONObject(tier).remove("materialCost");}}return c;}
  double num(JSONObject a,String k)throws Exception{double n=a.optDouble(k,0);if(!Double.isFinite(n)||n<0||n>1e12)throw new Exception("Некорректное число: "+k);return n;}
  double positiveQuantity(JSONObject a,String k)throws Exception{String raw=a.get(k).toString();if(!raw.matches("(?:0|[1-9][0-9]{0,11})(?:\\.[0-9]{1,4})?"))throw new Exception("Неверное количество: "+k);double value=Double.parseDouble(raw);if(value<=0)throw new Exception("Количество должно быть больше нуля");return value;}
@@ -47,6 +48,89 @@ public class MainActivity extends Activity {
  JSONObject remoteData(CloudSync.Vault vault,char[] password)throws Exception{if(vault.ciphertext==null)throw new IOException("На сервере пока нет данных. Сначала отправьте данные с первого телефона.");byte[] decoded;try{decoded=BackupCrypto.decrypt(vault.ciphertext,password);}catch(javax.crypto.AEADBadTagException e){throw new IOException("Пароль не подходит к зашифрованной базе сервера");}JSONObject data=new JSONObject(new String(decoded,StandardCharsets.UTF_8));if(!data.optString("format").equals("Arhilab-1"))throw new IOException("Неизвестный формат базы на сервере");validateBackup(data);return data;}
  void applyRemote(JSONObject data,CloudSync.Vault vault,CloudSync connection,boolean newDevice,char[] password)throws Exception{JSONObject previous=db;String previousUser=userId;try{JSONObject next=newDevice?new JSONObject().put("users",new JSONArray()):new JSONObject(db.toString());if(newDevice){JSONObject admin=new JSONObject().put("id",UUID.randomUUID().toString()).put("name","Администратор").put("login","admin").put("role","admin");password(admin,new String(password));next.getJSONArray("users").put(admin);userId=admin.getString("id");}JSONArray projects=new JSONArray(data.getJSONArray("projects").toString());for(int i=0;i<projects.length();i++){JSONObject p=projects.getJSONObject(i);for(String arr:new String[]{"photos","estimatePhotos"}){JSONArray rows=p.optJSONArray(arr);if(rows!=null)for(int j=0;j<rows.length();j++)rows.getJSONObject(j).put("id",UUID.randomUUID().toString());}}JSONObject importedCatalog=data.optJSONObject("catalog");if(importedCatalog!=null)validateCatalog(importedCatalog);next.put("projects",projects).put("cloud",new JSONObject().put("url",connection.url).put("revision",vault.revision).put("dirty",false));next.put("schemaVersion",1);next=DataMigration.migrate(next);migratePhotos(next,false);if(importedCatalog!=null)storeCatalog(importedCatalog);db=next;saveRaw();}catch(Exception e){db=previous;userId=previousUser;throw e;}}
  void beginBackupPicker(){Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/octet-stream").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"Arhilab-protected-backup.arhilab");startActivityForResult(i,11);}
+ void f1Status(String status,String category){synchronized(nativeBridge){try{JSONObject sync=F1SyncLedger.state(db);sync.put("syncState",status);if(category!=null)sync.put("lastErrorCategory",category);saveRaw();}catch(Exception e){recordError("f1Status",e);}}}
+ void f1StartLogin(String url,String organization,String email,String password){if(f1WorkerRunning)return;f1WorkerRunning=true;new Thread(()->{
+  try{
+   JSONObject sync;String device;
+   synchronized(nativeBridge){sync=F1SyncLedger.state(db);device=sync.optString("deviceId");if(device.isEmpty()){device=UUID.randomUUID().toString();sync.put("deviceId",device);saveRaw();}}
+   F1SyncTransport transport=new F1SyncTransport(url);
+   JSONObject response=transport.login(organization,email,password,device);
+   if(!response.getJSONObject("user").getString("role").equals("admin"))throw new IllegalStateException("Для отправки изменений требуется серверный администратор");
+   synchronized(nativeBridge){if(userId==null)return;sync=F1SyncLedger.state(db);sync.put("url",url).put("organizationId",organization)
+     .put("accessToken",response.getString("accessToken")).put("refreshToken",response.getString("refreshToken"))
+     .put("syncState","pending_changes");saveRaw();}
+   f1RunSync(transport);
+  }catch(Exception failure){f1Status(failure instanceof F1SyncTransport.Failure&&((F1SyncTransport.Failure)failure).status==401?"auth_required":"retry_wait",
+    failure instanceof F1SyncTransport.Failure?"server_rejected":"network");}
+  finally{f1WorkerRunning=false;}
+ },"arhilab-f1-login").start();}
+ void f1StartSync(){if(f1WorkerRunning)return;f1WorkerRunning=true;new Thread(()->{
+  try{String address;synchronized(nativeBridge){address=F1SyncLedger.state(db).getString("url");}
+   f1RunSync(new F1SyncTransport(address));
+  }catch(Exception failure){f1Status(failure instanceof F1SyncTransport.Failure&&((F1SyncTransport.Failure)failure).status==401?"auth_required":"retry_wait",
+    failure instanceof F1SyncTransport.Failure?"server_rejected":"network");}
+  finally{f1WorkerRunning=false;}
+ },"arhilab-f1-sync").start();}
+ JSONObject f1Request(F1SyncTransport transport,String method,String path,JSONObject body)throws Exception{
+  String access,refresh;synchronized(nativeBridge){JSONObject state=F1SyncLedger.state(db);access=state.optString("accessToken");refresh=state.optString("refreshToken");}
+  if(access.isEmpty())throw new F1SyncTransport.Failure(401);
+  try{return transport.request(method,path,body,access);}catch(F1SyncTransport.Failure failure){
+   if(failure.status!=401||refresh.isEmpty())throw failure;
+   JSONObject tokens;
+   try{tokens=transport.refresh(refresh);}catch(Exception lost){
+    // Rotation might have committed before the response was lost. Do not reuse the same refresh token.
+    synchronized(nativeBridge){JSONObject state=F1SyncLedger.state(db);state.remove("refreshToken");state.remove("accessToken");state.put("syncState","auth_required");saveRaw();}
+    throw new F1SyncTransport.Failure(401);
+   }
+   synchronized(nativeBridge){JSONObject state=F1SyncLedger.state(db);if(!state.optString("refreshToken").equals(refresh))throw new F1SyncTransport.Failure(401);
+    state.put("accessToken",tokens.getString("accessToken")).put("refreshToken",tokens.getString("refreshToken"));saveRaw();access=state.getString("accessToken");}
+   return transport.request(method,path,body,access);
+  }
+ }
+ void f1RunSync(F1SyncTransport transport)throws Exception{
+  synchronized(nativeBridge){if(userId==null)throw new IllegalStateException("Войдите локально");F1SyncLedger.state(db).put("syncState","syncing");saveRaw();}
+  boolean bootstrap;synchronized(nativeBridge){JSONObject state=F1SyncLedger.state(db);
+   bootstrap=db.getJSONArray("projects").length()==0&&state.getJSONArray("operations").length()==0&&state.optString("cursor","0").equals("0");}
+  if(bootstrap){JSONObject snapshot=f1Request(transport,"GET","/sync/snapshot",null);
+   synchronized(nativeBridge){JSONObject state=F1SyncLedger.state(db);
+    if(db.getJSONArray("projects").length()==0&&state.getJSONArray("operations").length()==0){JSONObject next=new JSONObject(db.toString());
+     JSONArray entities=snapshot.getJSONArray("entities");for(int i=0;i<entities.length();i++)F1SyncMerge.apply(next,entities.getJSONObject(i));
+     F1SyncLedger.state(next).put("cursor",snapshot.getString("cursor"));JSONObject old=db;db=next;
+     try{saveRaw();}catch(Exception e){db=old;throw e;}
+    }
+   }
+  }
+  while(true){JSONObject operation=null;
+   synchronized(nativeBridge){JSONArray jobs=F1SyncLedger.state(db).getJSONArray("operations");
+    for(int i=0;i<jobs.length();i++){JSONObject job=jobs.getJSONObject(i);if(!job.optString("state").equals("pending"))continue;
+     boolean blocked=false;for(int j=0;j<i;j++){JSONObject earlier=jobs.getJSONObject(j);
+      if(earlier.getString("entityId").equals(job.getString("entityId"))&&earlier.getString("entityType").equals(job.getString("entityType")))blocked=true;}
+     if(!blocked){operation=new JSONObject(job.toString());break;}
+    }
+   }
+   if(operation==null)break;
+   String operationId=operation.getString("operationId");operation.remove("state");
+   JSONObject result=f1Request(transport,"POST","/sync/push",new JSONObject().put("operations",new JSONArray().put(operation)));
+   JSONArray results=result.getJSONArray("results");if(results.length()!=1)throw new IllegalStateException("Сервер не подтвердил операцию");
+   synchronized(nativeBridge){JSONObject next=new JSONObject(db.toString());
+    F1SyncLedger.acknowledge(next,results.getJSONObject(0));JSONObject old=db;db=next;
+    try{saveRaw();}catch(Exception e){db=old;throw e;}
+   }
+  }
+  while(true){String cursor;synchronized(nativeBridge){cursor=F1SyncLedger.state(db).optString("cursor","0");}
+   JSONObject response=f1Request(transport,"GET","/sync/pull?cursor="+cursor,null);
+   synchronized(nativeBridge){JSONObject next=new JSONObject(db.toString());JSONArray changes=response.getJSONArray("changes");
+    for(int i=0;i<changes.length();i++)F1SyncMerge.apply(next,changes.getJSONObject(i));
+    F1SyncLedger.state(next).put("cursor",response.getString("nextCursor"));JSONObject old=db;db=next;
+    try{saveRaw();}catch(Exception e){db=old;throw e;}
+   }
+   if(!response.getBoolean("hasMore"))break;
+  }
+  synchronized(nativeBridge){JSONObject state=F1SyncLedger.state(db);JSONArray jobs=state.getJSONArray("operations");boolean conflicts=false;
+   for(int i=0;i<jobs.length();i++)if(jobs.getJSONObject(i).optString("state").equals("conflict"))conflicts=true;
+   state.put("syncState",conflicts?"conflict":jobs.length()>0?"pending_changes":"idle")
+    .put("lastSuccessfulSync",java.time.Instant.now().toString()).remove("lastErrorCategory");saveRaw();}
+ }
  class Bridge {
  @JavascriptInterface public synchronized String call(String action,String raw){JSONObject before=null;try{JSONObject a=new JSONObject(raw);JSONObject result=new JSONObject();
  if(action.equals("session")){if(userId==null)return "{\"ok\":true,\"active\":false}";return new JSONObject().put("ok",true).put("active",true).put("state",state()).toString();}
@@ -56,6 +140,12 @@ public class MainActivity extends Activity {
  if(action.equals("login")){if(System.currentTimeMillis()<blockedUntil)throw new Exception("Слишком много попыток. Повторите через минуту");JSONObject match=null;for(int i=0;i<db.getJSONArray("users").length();i++){JSONObject u=db.getJSONArray("users").getJSONObject(i);if(u.getString("login").equals(a.optString("login"))&&MessageDigest.isEqual(hash(a.optString("password"),u.getString("salt")).getBytes(StandardCharsets.UTF_8),u.getString("hash").getBytes(StandardCharsets.UTF_8)))match=u;}if(match==null){failures++;if(failures>=5){blockedUntil=System.currentTimeMillis()+60000;failures=0;}throw new Exception("Неверный логин или пароль");}userId=match.getString("id");startSession();failures=0;return new JSONObject().put("ok",true).put("state",state()).toString();}
  user();before=new JSONObject(db.toString());
  switch(action){
+ case "f1SyncConnect":{admin();String address=required(a,"url"),organization=required(a,"organizationId"),email=required(a,"email"),secret=required(a,"password");
+  new F1SyncTransport(address);UUID.fromString(organization);JSONObject sync=F1SyncLedger.state(db);
+  if(sync.has("organizationId")&&!sync.getString("organizationId").equals(organization))throw new Exception("Устройство связано с другой организацией");
+  if(sync.has("url")&&!sync.getString("url").equals(address))throw new Exception("Смена сервера требует отдельной миграции");
+  if(f1WorkerRunning)throw new Exception("Синхронизация уже выполняется");f1StartLogin(address,organization,email,secret);result.put("started",true);break;}
+ case "f1SyncNow":{admin();if(f1WorkerRunning)throw new Exception("Синхронизация уже выполняется");if(!F1SyncLedger.state(db).has("url"))throw new Exception("Подключите сервер синхронизации");f1StartSync();result.put("started",true);break;}
  case "logout":endSession();closeCloud();return "{\"ok\":true}";
  case "state":break;
  case "cloudConnect":{admin();char[] secret=required(a,"password").toCharArray();try{if(secret.length<12)throw new Exception("Пароль сервера: минимум 12 символов");CloudSync candidate=new CloudSync(required(a,"url"));JSONObject old=db.optJSONObject("cloud");if(old!=null&&!old.optString("url").equals(candidate.url))throw new Exception("Устройство уже связано с другим сервером");candidate.login(required(a,"login"),secret);CloudSync.Vault vault=candidate.fetch();if(old==null){db.put("cloud",new JSONObject().put("url",candidate.url).put("revision",vault.ciphertext==null?0:-1).put("dirty",true));saveRaw();}closeCloud();cloudClient=candidate;cloudPassword=secret;secret=null;result.put("serverRevision",vault.revision);break;}finally{if(secret!=null)Arrays.fill(secret,'\0');}}

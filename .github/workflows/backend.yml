@@ -60,8 +60,8 @@ jobs:
           echo '3ea61b2a06e31edf1c91134fe9106b0ebb16628be169f3db75bc7a2b06b45796  /tmp/arhilab-org-json.jar' | sha256sum -c -
           mkdir -p /tmp/arhilab-f1-tests
           javac -encoding UTF-8 -source 8 -target 8 -cp /tmp/arhilab-org-json.jar -d /tmp/arhilab-f1-tests \
-            arhilab/src/ru/arhilab/estimate/{DataMigration,LocalEstimates,F1SyncLedger}.java arhilab/tests/F1SyncLedgerTest.java
-          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F1SyncLedgerTest
+            arhilab/src/ru/arhilab/estimate/{DataMigration,LocalEstimates,F1SyncLedger,F1SyncMerge,F1SyncTransport}.java arhilab/tests/F1SyncLedgerTest.java
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F1SyncLedgerTest /tmp/arhilab-f1-android-operations.json
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
@@ -96,6 +96,7 @@ jobs:
       - name: Stage 2 and Stage 3 PostgreSQL integration tests
         env:
           STORAGE_TEST_S3_ENDPOINT: http://127.0.0.1:4566
+          F1_CLIENT_FIXTURE_PATH: /tmp/arhilab-f1-android-operations.json
         run: npm run test:integration
       - run: npm run build
       - run: docker build -t arhilab-backend:test .

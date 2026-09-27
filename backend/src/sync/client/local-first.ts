@@ -118,7 +118,12 @@ export class SyncCoordinator {
       }
       let more=true;while(more) {
         const page=await this.authorized(()=>this.transport.pull(this.state.cursor));
-        for(const change of page.changes)this.state.entities[change.entityId]=change.snapshot;
+        for(const change of page.changes) {
+          // Keep the client's proposal available after a conflict. The operation carries the local
+          // payload and cannot be replaced by a server change before the user resolves it.
+          if(this.state.operations.some(job=>job.entityId===change.entityId&&job.state!=='applied')) continue;
+          this.state.entities[change.entityId]=change.snapshot;
+        }
         this.state.cursor=page.nextCursor;more=page.hasMore;await this.store.write(this.state);
       }
       this.state.lastSuccessfulSync=new Date(this.now()).toISOString();

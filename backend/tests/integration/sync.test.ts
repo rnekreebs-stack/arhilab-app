@@ -2,10 +2,15 @@ import { after,before,test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { pool } from '../../src/database/pool.js';
 import { createApp } from '../../src/app.js';
 import { hashPassword } from '../../src/services/security.js';
+import { JsonFileSyncStore, SyncCoordinator } from '../../src/sync/client/local-first.js';
+import { HttpSyncTransport } from '../../src/sync/client/http-transport.js';
 let server:Server,base:string;
 const orgA=randomUUID(),orgB=randomUUID(),adminA=randomUUID(),adminB=randomUUID(),manager=randomUUID(),worker=randomUUID();
 const deviceA=randomUUID(),deviceA2=randomUUID(),deviceB=randomUUID();
@@ -338,4 +343,52 @@ test('F1 financial rows survive revisioned push, bootstrap and pull without leak
   const entities=other.body.entities as Array<{entityId:string;snapshot:Record<string,unknown>}>;
   assert.ok([project,estimate,work,material].every(id=>entities.some(x=>x.entityId===id)));
   assert.equal(((await request('/api/v1/sync/snapshot','GET',undefined,accessB)).body.entities as Array<{entityId:string}>).some(x=>x.entityId===estimate),false);
+});
+
+test('Java Android ledger serialization reaches PostgreSQL, survives Device B restart and preserves a markup conflict',
+  {skip:!process.env.F1_CLIENT_FIXTURE_PATH},async()=>{
+    const raw=await readFile(process.env.F1_CLIENT_FIXTURE_PATH!,'utf8');
+    const fixture=JSON.parse(raw) as {operations:Operation[]};
+    assert.deepEqual(fixture.operations.map(x=>x.entityType),['project','estimate','estimateItem','estimateItem']);
+    const [project,estimate]=fixture.operations;
+    assert.ok(project&&estimate);
+    const creation=await push(fixture.operations,accessA);
+    assert.deepEqual(creation.results.map(x=>x.status),Array(4).fill('applied'));
+    const lostResponse=await push(fixture.operations,accessA);
+    assert.deepEqual(lostResponse.results.map(x=>x.status),Array(4).fill('duplicate'));
+    const count=await pool.query<{total:string}>('SELECT count(*)::text AS total FROM estimate_items WHERE estimate_id=$1',[estimate.entityId]);
+    assert.equal(count.rows[0]?.total,'2');
+    const folder=await mkdtemp(join(tmpdir(),'arhilab-f1-device-b-'));
+    try {
+      const store=new JsonFileSyncStore(join(folder,'state.json'));
+      const transport=new HttpSyncTransport(base+'/api/v1',{accessToken:async()=>accessA2,refresh:async()=>false});
+      let deviceB=await SyncCoordinator.open(store,transport,()=>true);
+      assert.equal((await deviceB.syncNow()).state,'idle');
+      const synced=deviceB.entities[estimate.entityId];
+      assert.equal(synced?.delivery,'75.20');assert.equal(synced?.discount,'5.10');
+      assert.equal(synced?.workMarkupPercent,'0.00');
+      deviceB=await SyncCoordinator.open(store,transport,()=>false);
+      assert.equal(deviceB.summary().state,'offline');
+      assert.deepEqual(deviceB.entities[estimate.entityId],synced);
+      const ops=fixture.operations.filter(x=>x.entityType==='estimateItem');
+      const work=deviceB.entities[ops[0]!.entityId],material=deviceB.entities[ops[1]!.entityId];
+      const rows=[work,material];
+      const w=rows.find(x=>x?.kind==='work'),m=rows.find(x=>x?.kind==='material');
+      assert.equal(calc({lines:[{price:w?.price,qty:w?.quantity,coef:w?.coefficient,autoMaterial:w?.autoMaterial,materialPrice:w?.materialPrice}],
+        materials:[{price:m?.price,qty:m?.quantity}],workMarkupPercent:synced?.workMarkupPercent,
+        delivery:Number(synced?.delivery),discount:Number(synced?.discount)}).total,470.1);
+      const localOperation=op('estimate',estimate.entityId,'update',1,{workMarkupPercent:'20.00'});
+      await deviceB.localWrite(estimate.entityId,{...synced,workMarkupPercent:'20.00'},
+        {...localOperation,entityType:'estimate',entityId:estimate.entityId,operationType:'update',baseRevision:1,payload:{workMarkupPercent:'20.00'}});
+      const first=await push([op('estimate',estimate.entityId,'update',1,{workMarkupPercent:'10.00'})],accessA);
+      assert.equal(first.results[0]?.status,'applied');
+      deviceB=await SyncCoordinator.open(store,transport,()=>true);
+      assert.equal((await deviceB.syncNow()).state,'conflict');
+      assert.equal(deviceB.entities[estimate.entityId]?.workMarkupPercent,'20.00');
+      deviceB=await SyncCoordinator.open(store,transport,()=>false);
+      assert.equal(deviceB.entities[estimate.entityId]?.workMarkupPercent,'20.00');
+      assert.equal(deviceB.summary().conflicts,1);
+      const stored=await pool.query<{work_markup_percent:string}>('SELECT work_markup_percent FROM estimates WHERE id=$1',[estimate.entityId]);
+      assert.equal(stored.rows[0]?.work_markup_percent,'10.00');
+    } finally {await rm(folder,{recursive:true,force:true});}
 });
