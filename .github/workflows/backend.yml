@@ -60,12 +60,14 @@ jobs:
           echo '3ea61b2a06e31edf1c91134fe9106b0ebb16628be169f3db75bc7a2b06b45796  /tmp/arhilab-org-json.jar' | sha256sum -c -
           mkdir -p /tmp/arhilab-f1-tests
           javac -encoding UTF-8 -source 8 -target 8 -cp /tmp/arhilab-org-json.jar -d /tmp/arhilab-f1-tests \
-            arhilab/src/ru/arhilab/estimate/{DataMigration,LocalEstimates,F1SyncLedger,F1SyncMerge,F1SyncTransport,F2Payments}.java \
-            arhilab/tests/{F1SyncLedgerTest,F2PaymentsTest}.java
+            arhilab/src/ru/arhilab/estimate/{DataMigration,LocalEstimates,F1SyncLedger,F1SyncMerge,F1SyncTransport,F2Payments,CatalogPriceUpdate}.java \
+            arhilab/tests/{F1SyncLedgerTest,F2PaymentsTest,CatalogPriceUpdateTest}.java
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F1SyncLedgerTest /tmp/arhilab-f1-android-operations.json /tmp/arhilab-f1-money.json
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F2PaymentsTest /tmp/arhilab-f2-android-operations.json
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.CatalogPriceUpdateTest arhilab/assets/catalog.json
           node arhilab/tests/f1_legacy_total.cjs /tmp/arhilab-f1-money.json
           node arhilab/tests/f2_payments.cjs
+          node arhilab/tests/catalog_price_update.cjs
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck

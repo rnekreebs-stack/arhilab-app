@@ -4,7 +4,7 @@
 | --- | --- |
 | Objects | Map address, client, status and assignment losslessly to the server; preserve legacy object data. |
 | Estimates | Versioned conversion of one embedded legacy estimate to multiple independent estimates, server projection of all lines, delivery, discount and totals; atomic encrypted local sync queue. |
-| Catalog | Distribute/reconcile updated catalog with stable SKU/work keys and three tiers; keep the built-in 254 SKU and 371 works. |
+| Catalog | Preserve 254 SKU and existing work IDs/three tiers; approved September 2026 engineering update adds 18 works (389 total). Future: support explicit quoted/range/formula prices and required equipment value for boiler hydraulics, without inventing a fixed price. |
 | Finance | Legacy delivery/discount belong solely to the original estimate; new estimates begin at zero. Decide whether independent estimates are alternatives or additive before showing one aggregate contract total. Only show cost-based profit with complete actual inputs. |
 | Payments | Determine payment-to-estimate relationship; existing 0.6.2 payments belong to a project and lack currency. |
 | Tasks | Map progress, due dates and notes to the simpler backend task projection. |

@@ -26,9 +26,10 @@ public class Smoke extends Instrumentation {
  void report(String message){Bundle b=new Bundle();b.putString("stream","PASS: "+message+"\n");sendStatus(0,b);}
  public void onStart(){Bundle result=new Bundle();try{
   launch();
+  String smokePassword=java.util.UUID.randomUUID().toString();
   if(mode.equals("upgradePrepare")){
    check("api('status').setup===true","0.6.1 baseline clean install");
-   js("api('setup',{name:'Upgrade admin',password:'upgrade-password-2026'})");
+   js("api('setup',{name:'Upgrade admin',password:"+JSONObject.quote(smokePassword)+"})");
    js("enter()");
    check("api('session').active","0.6.1 admin registered");
    js("api('project',{name:'Upgrade project',address:'Upgrade address',status:'Новый',delivery:0,discount:0,deliveryCost:0,overhead:0,otherCost:0})");
@@ -57,11 +58,11 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_SMOKE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   check("api('status').setup===true","first launch/setup screen");
-  js("(()=>{let f=document.querySelector('#app form');f.querySelector('[name=name]').value='Smoke admin';f.querySelector('[name=password]').value='smoke-password-2026';f.requestSubmit();return true})()");
+  js("(()=>{let f=document.querySelector('#app form');f.querySelector('[name=name]').value='Smoke admin';f.querySelector('[name=password]').value="+JSONObject.quote(smokePassword)+";f.requestSubmit();return true})()");
   check("S.user.role==='admin'","admin account created through form");
   check("C.materials.length===254","catalog 254 SKU");
   check("C.works.filter(w=>w.tiers.standard.materialIds.length).length===110","110 linked works and 261 manual works");
-  check("C.works.length===371&&api('about').schemaVersion===2","371 works and current data schema");
+  check("C.works.length===389&&api('about').schemaVersion===2","389 works and current data schema");
   // A pre-0.6 row has no key, tier, or estimatePhotos. Insert through the same encrypted save routine.
   Field dbField=activity.getClass().getDeclaredField("db");dbField.setAccessible(true);JSONObject db=(JSONObject)dbField.get(activity);
   JSONObject legacy=new JSONObject("{\"id\":\"11111111-1111-4111-8111-111111111111\",\"name\":\"Legacy estimate\",\"address\":\"Legacy address\",\"status\":\"Новый\",\"lines\":[{\"id\":\"22222222-2222-4222-8222-222222222222\",\"name\":\"Legacy work\",\"unit\":\"м²\",\"qty\":10,\"coef\":1,\"price\":100,\"cost\":60,\"autoMaterial\":false}],\"materials\":[],\"payments\":[],\"tasks\":[],\"notes\":[],\"photos\":[]}");
@@ -88,8 +89,8 @@ public class Smoke extends Instrumentation {
   check("api('integrity').report.issues.length===0","read-only integrity report has no findings");
   Method backupMethod=activity.getClass().getDeclaredMethod("fullBackupContent");backupMethod.setAccessible(true);
   JSONObject complete=(JSONObject)backupMethod.invoke(activity);
-  if(!complete.optString("format").equals("Arhilab-2")||complete.optInt("schemaVersion")!=2||complete.toString().contains("sessionHash")||complete.toString().contains("smoke-password-2026"))throw new Exception("Unsafe or incomplete backup");
-  char[] backupPassword="separate-backup-2026".toCharArray();
+  if(!complete.optString("format").equals("Arhilab-2")||complete.optInt("schemaVersion")!=2||complete.toString().contains("sessionHash")||complete.toString().contains(smokePassword))throw new Exception("Unsafe or incomplete backup");
+  char[] backupPassword=java.util.UUID.randomUUID().toString().toCharArray();
   byte[] ciphertext=BackupCrypto.encrypt(complete.toString().getBytes("UTF-8"),backupPassword);
   JSONObject roundtrip=new JSONObject(new String(BackupCrypto.decrypt(ciphertext,backupPassword),"UTF-8"));
   if(roundtrip.getJSONArray("projects").length()!=complete.getJSONArray("projects").length())throw new Exception("Backup restore roundtrip mismatch");
@@ -102,7 +103,7 @@ public class Smoke extends Instrumentation {
   check("current().lines[0].materialTier==='premium'&&calc(current()).total==="+totals,"saved premium estimate after restart");
   js("(()=>{api('logout');auth();return true})()");
   check("!api('session').active&&!!document.querySelector('#app form [name=password]')","manual logout requires password");
-  js("(()=>{let f=document.querySelector('#app form');f.querySelector('[name=login]').value='admin';f.querySelector('[name=password]').value='smoke-password-2026';f.requestSubmit();return true})()");
+  js("(()=>{let f=document.querySelector('#app form');f.querySelector('[name=login]').value='admin';f.querySelector('[name=password]').value="+JSONObject.quote(smokePassword)+";f.requestSubmit();return true})()");
   check("S?.user?.role==='admin'&&api('session').active","login after logout restores session");
   result.putString("stream","ARHILAB_SMOKE_PASS\n");finish(Activity.RESULT_OK,result);
  }catch(Throwable e){result.putString("stream","ARHILAB_SMOKE_FAIL: "+e.toString()+"\n");finish(Activity.RESULT_CANCELED,result);}}
