@@ -13,10 +13,11 @@ export async function snapshotForBootstrap(ctx:Identity,afterCursorRead?:()=>Pro
     const entities:Array<{entityType:string;entityId:string;revision:number;snapshot:Record<string,unknown>}>=[];
     for(const type of entityTypes) {
       if((type==='payment'||type==='expense') && ctx.role!=='admin') continue;
+      if(type==='procurementReceipt' && ctx.role==='worker') continue;
       const spec=specification(type);
       if(!spec) continue;
       const files=type==='photo'||type==='document'?" AND (status='available' OR deleted_at IS NOT NULL)":'';
-      const assigned=type==='task'&&ctx.role==='worker'?' AND assignee_id=$3':'';
+      const assigned=(type==='task'||type==='procurementRequest')&&ctx.role==='worker'?' AND assignee_id=$3':'';
       const rows=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE organization_id=$1${files}${assigned} ORDER BY id LIMIT $2`,
         assigned?[ctx.organizationId,MAX_BOOTSTRAP_ENTITIES+1-entities.length,ctx.userId]:[ctx.organizationId,MAX_BOOTSTRAP_ENTITIES+1-entities.length]);
       for(const row of rows.rows) {

@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict');
+const {readFileSync}=require('node:fs');const vm=require('node:vm');
+const context={module:{exports:{}}};vm.runInNewContext(readFileSync('arhilab/assets/f6-today.js','utf8'),context);
+const F6Today=context.module.exports;
+const now=new Date(2026,8,28,12),id='req';
+const project={id:'p',procurementRequests:[{id,requestedQuantity:'3.0000',status:'ordered',neededByDate:'2026-09-27',assigneeId:'w'}],procurementReceipts:[]};
+assert.equal(F6Today.collect([project],{now,role:'admin'})[0].group,'overdue');
+assert.equal(F6Today.collect([project],{now,role:'worker',userId:'other'}).length,0);
+project.procurementReceipts=[{requestId:id,quantity:'1.2500'}];
+assert.equal(F6Today.collect([project],{now,role:'admin'})[0].group,'partial');
+project.procurementReceipts.push({requestId:id,quantity:'1.7500'});
+assert.equal(F6Today.collect([project],{now,role:'admin'}).length,0);
+assert.equal(F6Today.collect([project,project],{now,role:'admin'}).length,0);
+console.log('F6 Today date/partial/worker projection passed');

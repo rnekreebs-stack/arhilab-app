@@ -32,8 +32,16 @@ check_stage 13
 check_stage 14
 ./node_modules/.bin/node-pg-migrate up 1 --migrations-dir migrations --check-order
 check_stage 15
+./node_modules/.bin/node-pg-migrate up 1 --migrations-dir migrations --check-order
+check_stage 16
 node --import tsx scripts/verify-schema.ts
 npm run migrate:up
+npm run migrate:down
+check_stage 15
+npm run migrate:up
+check_stage 16
+npm run migrate:down
+check_stage 15
 npm run migrate:down
 check_stage 14
 npm run migrate:down
@@ -65,5 +73,5 @@ check_stage 1
 npm run migrate:down
 check_stage 0
 npm run migrate:up
-check_stage 15
+check_stage 16
 node --import tsx scripts/verify-schema.ts

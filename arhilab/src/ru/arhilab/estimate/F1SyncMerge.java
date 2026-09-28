@@ -22,7 +22,7 @@ final class F1SyncMerge {
 
     static void apply(JSONObject db, JSONObject change) throws Exception {
         String type = change.getString("entityType"), id = change.getString("entityId");
-        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment") && !type.equals("expense") && !type.equals("stage") && !type.equals("progressEntry") && !type.equals("task")) return;
+        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment") && !type.equals("expense") && !type.equals("stage") && !type.equals("progressEntry") && !type.equals("task") && !type.equals("procurementRequest") && !type.equals("procurementReceipt")) return;
         JSONObject sync = F1SyncLedger.state(db);
         String key = type + ":" + id;
         JSONArray jobs = sync.getJSONArray("operations");
@@ -39,7 +39,7 @@ final class F1SyncMerge {
             JSONObject p = find(projects, id);
             if (p == null) {
                 p = new JSONObject().put("id", id).put("materialMarkup", 8).put("workMarkupPercent", "0");
-                for (String field : new String[]{"lines","materials","tasks","payments","expenses","notes","photos","estimatePhotos"})
+                for (String field : new String[]{"lines","materials","tasks","payments","expenses","procurementRequests","procurementReceipts","notes","photos","estimatePhotos"})
                     p.put(field, new JSONArray());
                 projects.put(p);
             }
@@ -109,6 +109,30 @@ final class F1SyncMerge {
                     if(snapshot.has("historicalStageId")&&!snapshot.isNull("historicalStageId"))
                         entry.put("historicalStageId",snapshot.getString("historicalStageId"));
                     else entry.put("historicalStageId","");
+                }
+            }
+        } else if(type.equals("procurementRequest")||type.equals("procurementReceipt")) {
+            JSONObject p=find(projects,snapshot.optString("projectId",""));
+            if(p==null&&deleted){for(int i=0;i<projects.length();i++){
+                JSONObject candidate=projects.getJSONObject(i);
+                F6Procurement.ensure(candidate);
+                JSONArray source=candidate.getJSONArray(type.equals("procurementRequest")?"procurementRequests":"procurementReceipts");
+                try{F6Procurement.find(source,id);p=candidate;break;}catch(IllegalArgumentException ignored){}
+            }}
+            if(p==null)throw new IllegalStateException("Отсутствует объект снабжения");
+            F6Procurement.ensure(p);
+            JSONArray rows=p.getJSONArray(type.equals("procurementRequest")?"procurementRequests":"procurementReceipts");
+            if(deleted)remove(rows,id);
+            else {
+                JSONObject record;
+                try{record=F6Procurement.find(rows,id);}catch(IllegalArgumentException absent){record=new JSONObject().put("id",id);rows.put(record);}
+                if(type.equals("procurementRequest")){
+                    for(String field:new String[]{"title","unit","requestedQuantity","status","note"})record.put(field,snapshot.get(field));
+                    for(String field:new String[]{"estimateId","stageId","estimateItemId","catalogSku","neededByDate","assigneeId","createdBy"}){
+                        if(snapshot.has(field)&&!snapshot.isNull(field))record.put(field,snapshot.get(field));else record.remove(field);
+                    }
+                } else {
+                    for(String field:new String[]{"requestId","quantity","businessDate","note","createdBy"})record.put(field,snapshot.get(field));
                 }
             }
         } else if(type.equals("task")) {

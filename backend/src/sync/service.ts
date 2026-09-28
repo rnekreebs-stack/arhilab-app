@@ -5,6 +5,7 @@ import { HttpError } from '../middleware/errors.js';
 import { assertCurrentAdmin, transaction, type Identity } from '../services/security.js';
 import { parsePayload, specification, visibleSnapshot, type EntityType } from './registry.js';
 import { canonical } from './canonical.js';
+import { catalogSkuIds } from './catalog-skus.js';
 import type { SyncOperation } from './validation.js';
 
 export type SyncResult = {
@@ -89,6 +90,48 @@ async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise
     if(op.operationType==='create')payload.createdBy=ctx.userId;
     if(nextStatus==='done' && oldStatus!=='done')payload.completedAt=new Date().toISOString();
     if(nextStatus!=='done' && oldStatus==='done')payload.completedAt=null;
+  }
+  if(op.entityType==='procurementRequest') {
+    if(op.operationType==='delete') {
+      const history=await client.query('SELECT 1 FROM procurement_receipts WHERE organization_id=$1 AND request_id=$2 LIMIT 1',[ctx.organizationId,op.entityId]);
+      if(history.rowCount)return {result:rejected(op,'validation','request_has_receipt_history')};
+    } else {
+      if(current && ['projectId','estimateId','stageId','estimateItemId','catalogSku','createdBy'].some(key=>
+        payload[key]!==undefined && payload[key]!==current[spec.fields[key]!]))
+        return {result:rejected(op,'validation','procurement_owner_immutable')};
+      const projectId=payload.projectId??current?.project_id,estimateId=payload.estimateId??current?.estimate_id;
+      const stageId=payload.stageId??current?.stage_id,itemId=payload.estimateItemId??current?.estimate_item_id;
+      if((stageId||itemId)&&!estimateId)return {result:rejected(op,'validation','invalid_procurement_context')};
+      if(estimateId){
+        const owner=await client.query('SELECT 1 FROM estimates WHERE organization_id=$1 AND id=$2 AND project_id=$3 AND deleted_at IS NULL',[ctx.organizationId,estimateId,projectId]);
+        if(!owner.rowCount)return {result:rejected(op,'validation','invalid_procurement_context')};
+      }
+      for(const [id,table] of [[stageId,'stages'],[itemId,'estimate_items']] as const){
+        if(!id)continue;
+        const owner=await client.query(`SELECT 1 FROM ${table} WHERE organization_id=$1 AND estimate_id=$2 AND id=$3 AND deleted_at IS NULL`,[ctx.organizationId,estimateId,id]);
+        if(!owner.rowCount)return {result:rejected(op,'validation','invalid_procurement_context')};
+      }
+      const sku=payload.catalogSku??current?.catalog_sku;
+      if(sku && (typeof sku!=='string'||!catalogSkuIds.has(sku)))return {result:rejected(op,'validation','unknown_catalog_sku')};
+      if(op.operationType==='create')payload.createdBy=ctx.userId;
+    }
+  }
+  if(op.entityType==='procurementReceipt' && op.operationType!=='delete') {
+    if(current && ['projectId','requestId','createdBy'].some(key=>payload[key]!==undefined && payload[key]!==current[spec.fields[key]!]))
+      return {result:rejected(op,'validation','receipt_owner_immutable')};
+    const projectId=payload.projectId??current?.project_id,requestId=payload.requestId??current?.request_id;
+    const request=await client.query<{requested_quantity:string;status:string}>(
+      'SELECT requested_quantity,status FROM procurement_requests WHERE organization_id=$1 AND project_id=$2 AND id=$3 AND deleted_at IS NULL',
+      [ctx.organizationId,projectId,requestId]);
+    if(!request.rows[0])return {result:rejected(op,'validation','invalid_procurement_context')};
+    if(request.rows[0].status==='cancelled')return {result:rejected(op,'validation','request_cancelled')};
+    const total=await client.query<{quantity:string}>(
+      'SELECT COALESCE(sum(quantity),0)::text AS quantity FROM procurement_receipts WHERE organization_id=$1 AND request_id=$2 AND id<>$3 AND deleted_at IS NULL',
+      [ctx.organizationId,requestId,op.entityId]);
+    const units=(v:unknown)=>{const [whole='0',fraction='']=String(v).split('.');return BigInt(whole)*10000n+BigInt((fraction+'0000').slice(0,4));};
+    if(units(total.rows[0]?.quantity??'0')+units(payload.quantity??current?.quantity)>units(request.rows[0].requested_quantity))
+      return {result:rejected(op,'validation','receipt_exceeds_requested')};
+    if(op.operationType==='create')payload.createdBy=ctx.userId;
   }
   if(op.entityType==='estimateItem') {
     if(current && payload.estimateId!==undefined && payload.estimateId!==current.estimate_id)
@@ -201,7 +244,7 @@ export async function applyOperation(ctx:Identity,op:SyncOperation):Promise<Sync
     const reusedId=await client.query('SELECT id FROM sync_operations WHERE id=$1',[op.operationId]);
     if (reusedId.rowCount) return rejected(op,'conflict','operation_id_reused');
     const {result,state}=await mutation(client,ctx,op);
-    if(result.status==='applied' && (['payment','expense','stage','progressEntry','task'].includes(op.entityType) ||
+    if(result.status==='applied' && (['payment','expense','stage','progressEntry','task','procurementRequest','procurementReceipt'].includes(op.entityType) ||
       op.entityType==='estimateItem' && typeof op.payload==='object' && op.payload!==null && 'stageId' in op.payload)) await client.query(
       'INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
       [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`${op.entityType}.${op.operationType}`,op.entityType,op.entityId]);
@@ -235,7 +278,7 @@ export async function applyResolution(client:PoolClient,ctx:Identity,entityType:
   const {result,state}=await mutation(client,ctx,op);
   if(result.status==='rejected' && result.code==='invalid_reference') throw new HttpError(400,'Invalid reference','invalid_reference');
   if(result.status!=='applied'||!state) throw new HttpError(409,'Resolution stale','resolution_stale');
-  if(['payment','expense','stage','progressEntry','task'].includes(entityType) || entityType==='estimateItem' && 'stageId' in payload) await client.query(
+  if(['payment','expense','stage','progressEntry','task','procurementRequest','procurementReceipt'].includes(entityType) || entityType==='estimateItem' && 'stageId' in payload) await client.query(
     'INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
     [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`${entityType}.${kind}`,entityType,entityId]);
   await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result)
@@ -256,12 +299,13 @@ export async function pullChanges(ctx:Identity,cursor:string,limit:number) {
   const visible=[];
   for(const row of page) {
     if(ctx.role!=='admin' && ['payment','expense'].includes(row.entity_type))continue;
+    if(ctx.role==='worker' && row.entity_type==='procurementReceipt')continue;
     let state=row.snapshot,operation=row.operation_type;
-    if(ctx.role==='worker' && row.entity_type==='task' && state.assigneeId!==ctx.userId) {
+    if(ctx.role==='worker' && ['task','procurementRequest'].includes(row.entity_type) && state.assigneeId!==ctx.userId) {
       // A previously assigned device must receive a redacted tombstone after reassignment.
       const prior=await pool.query<{assignee:string|null}>(`SELECT snapshot->>'assigneeId' AS assignee FROM sync_changes
-        WHERE organization_id=$1 AND entity_type='task' AND entity_id=$2 AND sequence<$3
-        ORDER BY sequence DESC LIMIT 1`,[ctx.organizationId,row.entity_id,row.sequence]);
+        WHERE organization_id=$1 AND entity_type=$4 AND entity_id=$2 AND sequence<$3
+        ORDER BY sequence DESC LIMIT 1`,[ctx.organizationId,row.entity_id,row.sequence,row.entity_type]);
       if(prior.rows[0]?.assignee!==ctx.userId)continue;
       state={id:row.entity_id,revision:Number(row.revision),deletedAt:row.changed_at.toISOString()};
       operation='delete';

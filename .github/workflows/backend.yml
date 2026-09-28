@@ -60,13 +60,14 @@ jobs:
           echo '3ea61b2a06e31edf1c91134fe9106b0ebb16628be169f3db75bc7a2b06b45796  /tmp/arhilab-org-json.jar' | sha256sum -c -
           mkdir -p /tmp/arhilab-f1-tests
           javac -encoding UTF-8 -source 8 -target 8 -cp /tmp/arhilab-org-json.jar -d /tmp/arhilab-f1-tests \
-            arhilab/src/ru/arhilab/estimate/{DataMigration,LocalEstimates,F1SyncLedger,F1SyncMerge,F1SyncTransport,F2Payments,F3Expenses,F4Execution,F5Tasks,CatalogPriceUpdate}.java \
-            arhilab/tests/{F1SyncLedgerTest,F2PaymentsTest,F3ExpensesTest,F4ExecutionTest,F5TasksTest,CatalogPriceUpdateTest}.java
+            arhilab/src/ru/arhilab/estimate/{DataMigration,LocalEstimates,F1SyncLedger,F1SyncMerge,F1SyncTransport,F2Payments,F3Expenses,F4Execution,F5Tasks,F6Procurement,CatalogPriceUpdate}.java \
+            arhilab/tests/{F1SyncLedgerTest,F2PaymentsTest,F3ExpensesTest,F4ExecutionTest,F5TasksTest,F6ProcurementTest,CatalogPriceUpdateTest}.java
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F1SyncLedgerTest /tmp/arhilab-f1-android-operations.json /tmp/arhilab-f1-money.json
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F2PaymentsTest /tmp/arhilab-f2-android-operations.json
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F3ExpensesTest /tmp/arhilab-f3-android-operations.json
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F4ExecutionTest /tmp/arhilab-f4-android-operations.json
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F5TasksTest /tmp/arhilab-f5-android-operations.json
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F6ProcurementTest /tmp/arhilab-f6-android-operations.json
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.CatalogPriceUpdateTest arhilab/assets/catalog.json
           node arhilab/tests/f1_legacy_total.cjs /tmp/arhilab-f1-money.json
           node arhilab/tests/f2_payments.cjs
@@ -76,6 +77,8 @@ jobs:
           node arhilab/tests/f4_execution_ui.cjs
           node arhilab/tests/f5_today.cjs
           node arhilab/tests/f5_tasks_ui.cjs
+          node arhilab/tests/f6_today.cjs
+          node arhilab/tests/f6_ui.cjs
           node arhilab/tests/catalog_price_update.cjs
       - run: npm ci
       - run: npm run lint
@@ -116,6 +119,7 @@ jobs:
           F3_CLIENT_FIXTURE_PATH: /tmp/arhilab-f3-android-operations.json
           F4_CLIENT_FIXTURE_PATH: /tmp/arhilab-f4-android-operations.json
           F5_CLIENT_FIXTURE_PATH: /tmp/arhilab-f5-android-operations.json
+          F6_CLIENT_FIXTURE_PATH: /tmp/arhilab-f6-android-operations.json
         run: npm run test:integration
       - run: npm run build
       - run: docker build -t arhilab-backend:test .
