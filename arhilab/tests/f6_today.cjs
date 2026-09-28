@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs');const vm=require('node:vm');
-const context={module:{exports:{}}};vm.runInNewContext(readFileSync('arhilab/assets/f6-today.js','utf8'),context);
+const context={module:{exports:{}}};vm.runInNewContext(readFileSync(require('node:path').join(__dirname,'../assets/f6-today.js'),'utf8'),context);
 const F6Today=context.module.exports;
 const now=new Date(2026,8,28,12),id='req';
 const project={id:'p',procurementRequests:[{id,requestedQuantity:'3.0000',status:'ordered',neededByDate:'2026-09-27',assigneeId:'w'}],procurementReceipts:[]};
