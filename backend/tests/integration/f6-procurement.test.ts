@@ -34,6 +34,26 @@ before(async()=>{
  access=await login(org,admin);otherAccess=await login(org,admin);workerAccess=await login(org,worker);
  managerAccess=await login(org,manager);foreignAccess=await login(otherOrg,otherAdmin);
 });
+test('F6 Arhilab-2 restored request and receipt replay once after restart and retry',async()=>{
+ const fixture=JSON.parse(await readFile(process.env.F6_RESTORED_FIXTURE_PATH!,'utf8')) as
+  {operations:Operation[];projectId:string;requestId:string;receiptId:string};
+ assert.deepEqual(fixture.operations.map(x=>x.entityType),['project','estimate','estimateItem','procurementRequest','procurementReceipt']);
+ const first=await push(fixture.operations);assert.equal(first.status,200);
+ assert.deepEqual(first.results.map(x=>x.status),Array(5).fill('applied'));
+ const retry=await push(fixture.operations);assert.equal(retry.status,200);
+ assert.deepEqual(retry.results.map(x=>x.originalStatus),Array(5).fill('applied'));
+ const linked=await pool.query<{quantity:string;estimate_id:string;estimate_item_id:string}>(
+  'SELECT requested_quantity::text AS quantity,estimate_id,estimate_item_id FROM procurement_requests WHERE id=$1',[fixture.requestId]);
+ assert.equal(linked.rowCount,1);assert.equal(linked.rows[0]?.quantity,'100.0000');
+ assert.equal(linked.rows[0]?.estimate_id,fixture.operations[1]?.entityId);
+ assert.equal(linked.rows[0]?.estimate_item_id,fixture.operations[2]?.entityId);
+ assert.equal((await pool.query('SELECT id FROM procurement_receipts WHERE id=$1 AND request_id=$2',[fixture.receiptId,fixture.requestId])).rowCount,1);
+ assert.equal((await pool.query<{quantity:string}>('SELECT sum(quantity)::text AS quantity FROM procurement_receipts WHERE request_id=$1 AND deleted_at IS NULL',[fixture.requestId])).rows[0]?.quantity,'40.0000');
+ const pull=await request('/api/v1/sync/pull?cursor=0&limit=1000');
+ const changes=pull.body.changes as Array<{entityType:string;entityId:string}>;
+ assert.equal(changes.filter(x=>x.entityId===fixture.requestId).length,1);
+ assert.equal(changes.filter(x=>x.entityId===fixture.receiptId).length,1);
+});
 after(async()=>{if(server)await new Promise<void>(resolve=>server.close(()=>resolve()));await pool.end();});
 test('F6 Android queued fixture, real HTTP/PostgreSQL, duplicate retry, second device, privacy and receipt races',async()=>{
  const fixture=JSON.parse(await readFile(process.env.F6_CLIENT_FIXTURE_PATH!,'utf8')) as
