@@ -94,6 +94,17 @@ test('F6 Android queued fixture, real HTTP/PostgreSQL, duplicate retry, second d
  assert.equal(stale.results[0]?.status,'conflict');assert.ok(stale.results[0]?.conflictId);
  const edit=await push([op('procurementReceipt',fixture.receiptId,'update',1,{note:'Исправлено'})]);assert.equal(edit.results[0]?.status,'applied');
  assert.equal((await push([op('procurementReceipt',fixture.receiptId,'delete',1,{})],otherAccess)).results[0]?.status,'conflict');
+ const receiptWin=await push([op('procurementReceipt',fixture.receiptId,'update',2,{note:'Второе уточнение'})]);
+ assert.equal(receiptWin.results[0]?.status,'applied');
+ const receiptStale=await push([op('procurementReceipt',fixture.receiptId,'update',2,{note:'Параллельное уточнение'})],otherAccess);
+ assert.equal(receiptStale.results[0]?.status,'conflict');assert.ok(receiptStale.results[0]?.conflictId);
+ const temporary=op('procurementReceipt',randomUUID(),'create',0,
+  {projectId:fixture.projectId,requestId:fixture.requestId,quantity:'0.5000',businessDate:'2026-09-28'});
+ assert.equal((await push([temporary])).results[0]?.status,'applied');
+ assert.equal((await push([op('procurementReceipt',temporary.entityId,'delete',1,{})])).results[0]?.status,'applied');
+ const resurrection=await push([op('procurementReceipt',temporary.entityId,'update',1,{note:'Вернуть незаметно'})],otherAccess);
+ assert.equal(resurrection.results[0]?.status,'conflict');assert.ok(resurrection.results[0]?.conflictId);
+ assert.equal((await pool.query('SELECT id FROM procurement_receipts WHERE id=$1 AND deleted_at IS NULL',[temporary.entityId])).rowCount,0);
  assert.equal((await push([op('procurementRequest',fixture.requestId,'delete',2,{})])).results[0]?.code,'request_has_receipt_history');
  const unassign=await push([op('procurementRequest',fixture.requestId,'update',2,{assigneeId:null})]);assert.equal(unassign.results[0]?.status,'applied');
  const reduced=await push([op('procurementRequest',fixture.requestId,'update',3,{requestedQuantity:'2.0000'})]);
@@ -101,6 +112,9 @@ test('F6 Android queued fixture, real HTTP/PostgreSQL, duplicate retry, second d
  assert.equal((await pool.query<{total:string}>('SELECT sum(quantity)::text AS total FROM procurement_receipts WHERE request_id=$1 AND deleted_at IS NULL',[fixture.requestId])).rows[0]?.total,'2.2500');
  assert.equal((await push([op('procurementReceipt',randomUUID(),'create',0,
   {projectId:fixture.projectId,requestId:fixture.requestId,quantity:'0.0001',businessDate:'2026-09-28'})])).results[0]?.code,'receipt_exceeds_requested');
+ assert.equal((await push([op('procurementRequest',fixture.requestId,'update',4,{status:'ordered'})])).results[0]?.status,'applied');
+ const statusStale=await push([op('procurementRequest',fixture.requestId,'update',4,{status:'cancelled'})],otherAccess);
+ assert.equal(statusStale.results[0]?.status,'conflict');assert.ok(statusStale.results[0]?.conflictId);
  const workerPull=await request('/api/v1/sync/pull?cursor=0&limit=100','GET',undefined,workerAccess);
  const visible=(workerPull.body.changes as Array<{entityType:string;entityId:string;operationType:string;snapshot:Record<string,unknown>}>);
  assert.equal(visible.some(row=>row.entityType==='procurementReceipt'),false);
