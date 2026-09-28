@@ -13,4 +13,8 @@ import zipfile
 with zipfile.ZipFile('build/smoke/base.apk','a',zipfile.ZIP_DEFLATED) as z:z.write('build/smoke/classes.dex','classes.dex')
 PY
 "$BT/zipalign" -f 4 build/smoke/base.apk build/smoke/aligned.apk
-"$BT/apksigner" sign --ks "${SIGNING_KEYSTORE:?Persistent Debug keystore required}" --ks-key-alias androiddebugkey --ks-pass pass:android --out build/smoke/smoke.apk build/smoke/aligned.apk
+: "${SIGNING_KEYSTORE:?Signing keystore required}"
+: "${SIGNING_STORE_PASSWORD:?Signing password required}"
+: "${SIGNING_KEY_ALIAS:?Signing alias required}"
+export SIGNING_KEY_PASSWORD="${SIGNING_KEY_PASSWORD:-$SIGNING_STORE_PASSWORD}"
+"$BT/apksigner" sign --ks "$SIGNING_KEYSTORE" --ks-key-alias "$SIGNING_KEY_ALIAS" --ks-pass env:SIGNING_STORE_PASSWORD --key-pass env:SIGNING_KEY_PASSWORD --out build/smoke/smoke.apk build/smoke/aligned.apk
