@@ -18,6 +18,11 @@ assert.equal(F5.collect([project],{now:when,userId:'worker',role:'worker'}).atte
 assert.equal(F5.collect([project],{now:when,userId:'worker',role:'worker'}).upcoming.length,0);
 assert.equal(F5.collect([project],{now:when,userId:'worker',mine:true,role:'admin'}).today.length,1);
 assert.equal(F5.collect([project],{now:when,projectId:'other'}).overdue.length,0);
+const secondProject={id:'b',name:'Второй объект',tasks:[{id:'6',name:'Обычная',priority:'normal',planDate:date},
+ {id:'7',name:'Срочная сегодня',priority:'urgent',planDate:date}]};
+const combined=F5.collect([project,secondProject],{now:when});
+assert.deepEqual(combined.today.map(x=>x.task.id),['7','2','6']);
+assert.deepEqual(F5.collect([project,secondProject],{now:when,projectId:'b'}).today.map(x=>x.task.id),['7','6']);
 project.estimates[0].lines[0].qty='3';
 assert.equal(F5.collect([project],{now:when}).attention.length,0);
 process.env.TZ='Pacific/Honolulu';

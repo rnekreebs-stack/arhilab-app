@@ -121,4 +121,20 @@ test('F5 Android offline fixture, HTTP PostgreSQL, second device, conflict, idem
   assert.equal((await push([op('task',linkedTask,'update',1,{status:'in_progress'})])).results[0]?.status,'applied');
   const historical=await pool.query<{stage_id:string;estimate_item_id:string}>('SELECT stage_id,estimate_item_id FROM tasks WHERE id=$1',[linkedTask]);
   assert.equal(historical.rows[0]?.stage_id,stage);assert.equal(historical.rows[0]?.estimate_item_id,item);
+  const otherProject=randomUUID(),otherEstimate=randomUUID();
+  assert.deepEqual((await push([
+    op('project',otherProject,'create',0,{name:'Другой объект'}),
+    op('estimate',otherEstimate,'create',0,{projectId:otherProject,name:'Чужая смета'}),
+  ])).results.map(x=>x.status),['applied','applied']);
+  assert.equal((await push([op('task',randomUUID(),'create',0,{projectId:fixture.projectId,
+    estimateId:otherEstimate,title:'Неверная связь',status:'open'})])).results[0]?.code,'invalid_task_context');
+  const assignmentId=randomUUID();
+  assert.equal((await push([op('task',assignmentId,'create',0,{projectId:fixture.projectId,
+    title:'Назначить',status:'open'})])).results[0]?.status,'applied');
+  assert.equal((await push([op('task',assignmentId,'update',1,{assigneeId:worker})])).results[0]?.status,'applied');
+  const competing=await push([op('task',assignmentId,'update',1,{assigneeId:manager})],otherAccess);
+  assert.equal(competing.results[0]?.status,'conflict');assert.ok(competing.results[0]?.conflictId);
+  assert.equal((await pool.query<{assignee_id:string}>('SELECT assignee_id FROM tasks WHERE id=$1',[assignmentId])).rows[0]?.assignee_id,worker);
+  assert.equal((await push([op('task',assignmentId,'update',2,{title:'Исправлено'})])).results[0]?.status,'applied');
+  assert.equal((await push([op('task',assignmentId,'delete',2,{})],otherAccess)).results[0]?.status,'conflict');
 });

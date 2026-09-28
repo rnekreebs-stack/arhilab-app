@@ -17,14 +17,14 @@ jobs:
         image: postgres:17-alpine
         env:
           POSTGRES_USER: arhilab
-          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_PASSWORD: ${{ github.run_id }}
           POSTGRES_DB: arhilab_test
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U arhilab -d arhilab_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      DATABASE_URL: postgresql://arhilab:local-ci-only@localhost:5432/arhilab_test
+      DATABASE_URL: postgresql://arhilab:${{ github.run_id }}@localhost:5432/arhilab_test
       NODE_ENV: test
       LOGIN_RATE_LIMIT_MAX: 100
     defaults:
@@ -75,6 +75,7 @@ jobs:
           node arhilab/tests/f4_execution.cjs
           node arhilab/tests/f4_execution_ui.cjs
           node arhilab/tests/f5_today.cjs
+          node arhilab/tests/f5_tasks_ui.cjs
           node arhilab/tests/catalog_price_update.cjs
       - run: npm ci
       - run: npm run lint
@@ -131,9 +132,10 @@ jobs:
         run: docker compose exec -T api test -f /app/dist/bootstrap.js
       - name: Compose bootstrap and sync smoke test
         run: |
-          org="$(docker compose exec -T -e BOOTSTRAP_ORGANIZATION_NAME='CI smoke org' -e BOOTSTRAP_ADMIN_EMAIL=ci-smoke@test.example -e BOOTSTRAP_ADMIN_PASSWORD='local-ci-only-password-123' api node dist/bootstrap.js | sed -n 's/^Organization initialized: //p')"
+          smoke_password="$(openssl rand -hex 24)"
+          org="$(docker compose exec -T -e BOOTSTRAP_ORGANIZATION_NAME='CI smoke org' -e BOOTSTRAP_ADMIN_EMAIL=ci-smoke@test.example -e BOOTSTRAP_ADMIN_PASSWORD="$smoke_password" api node dist/bootstrap.js | sed -n 's/^Organization initialized: //p')"
           test -n "$org"
-          COMPOSE_SMOKE_ORG="$org" COMPOSE_SMOKE_PASSWORD='local-ci-only-password-123' node --import tsx scripts/smoke-compose.ts
+          COMPOSE_SMOKE_ORG="$org" COMPOSE_SMOKE_PASSWORD="$smoke_password" node --import tsx scripts/smoke-compose.ts
       - if: always()
         run: |
           docker compose down -v
