@@ -132,6 +132,19 @@ final class F1SyncLedger {
                 }
             }
             JSONArray payments = project.optJSONArray("payments");
+            JSONArray expenses = project.optJSONArray("expenses");
+            if (expenses != null) for (int i=0; i<expenses.length(); i++) {
+                JSONObject expense=expenses.getJSONObject(i);
+                JSONObject payload=new JSONObject().put("projectId",projectId)
+                    .put("estimateId",expense.has("estimateId") ? expense.getString("estimateId") : JSONObject.NULL)
+                    .put("category",expense.getString("category"))
+                    .put("amount",decimal(expense.get("amount"),2))
+                    .put("currency",expense.getString("currency"))
+                    .put("businessDate",expense.getString("date"))
+                    .put("description",expense.getString("description"))
+                    .put("note",expense.optString("note",""));
+                row(rows,"expense",expense.getString("id"),payload);
+            }
             if (payments != null) for (int i = 0; i < payments.length(); i++) {
                 JSONObject payment = payments.getJSONObject(i);
                 String currency = payment.optString("currency", "");
@@ -216,7 +229,7 @@ final class F1SyncLedger {
         ArrayList<String> changed = new ArrayList<>();
         for (Iterator<String> keys = rows.keys(); keys.hasNext();) changed.add(keys.next());
         // Store in foreign-key dependency order even though org.json does not promise insertion order.
-        for (String type : new String[]{"project", "estimate", "estimateItem", "payment"}) {
+        for (String type : new String[]{"project", "estimate", "estimateItem", "payment", "expense"}) {
             for (String key : changed) {
                 if (!key.startsWith(type + ":")) continue;
                 JSONObject payload = rows.getJSONObject(key);
@@ -230,7 +243,7 @@ final class F1SyncLedger {
             String key = keys.next();
             if (!rows.has(key)) removed.add(key);
         }
-        for (String type : new String[]{"payment", "estimateItem", "estimate", "project"}) {
+        for (String type : new String[]{"expense", "payment", "estimateItem", "estimate", "project"}) {
             for (String key : removed) {
                 if (!key.startsWith(type + ":")) continue;
                 enqueue(operations, revisions, key, "delete", new JSONObject());

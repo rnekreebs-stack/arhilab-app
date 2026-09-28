@@ -22,7 +22,7 @@ final class F1SyncMerge {
 
     static void apply(JSONObject db, JSONObject change) throws Exception {
         String type = change.getString("entityType"), id = change.getString("entityId");
-        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment")) return;
+        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment") && !type.equals("expense")) return;
         JSONObject sync = F1SyncLedger.state(db);
         String key = type + ":" + id;
         JSONArray jobs = sync.getJSONArray("operations");
@@ -39,7 +39,7 @@ final class F1SyncMerge {
             JSONObject p = find(projects, id);
             if (p == null) {
                 p = new JSONObject().put("id", id).put("materialMarkup", 8).put("workMarkupPercent", "0");
-                for (String field : new String[]{"lines","materials","tasks","payments","notes","photos","estimatePhotos"})
+                for (String field : new String[]{"lines","materials","tasks","payments","expenses","notes","photos","estimatePhotos"})
                     p.put(field, new JSONArray());
                 projects.put(p);
             }
@@ -82,6 +82,26 @@ final class F1SyncMerge {
                         if (privateData.has(field)) p.put(field, privateData.get(field));
                     LocalEstimates.ensure(p);
                 }
+            }
+        } else if (type.equals("expense")) {
+            JSONObject p = find(projects, snapshot.getString("projectId"));
+            if (p == null) throw new IllegalStateException("Отсутствует объект расхода");
+            JSONArray expenses=p.optJSONArray("expenses");
+            if (expenses==null) {expenses=new JSONArray();p.put("expenses",expenses);}
+            if (deleted) remove(expenses,id);
+            else {
+                JSONObject expense=find(expenses,id);
+                if (expense==null) {expense=new JSONObject().put("id",id);expenses.put(expense);}
+                expense.put("category",snapshot.getString("category"))
+                    .put("amount",snapshot.get("amount"))
+                    .put("currency",snapshot.getString("currency"))
+                    .put("date",snapshot.getString("businessDate"))
+                    .put("description",snapshot.getString("description"))
+                    .put("note",snapshot.optString("note",""));
+                if(snapshot.has("createdAt")&&!snapshot.isNull("createdAt"))expense.put("createdAt",snapshot.get("createdAt"));
+                if(snapshot.has("updatedAt")&&!snapshot.isNull("updatedAt"))expense.put("updatedAt",snapshot.get("updatedAt"));
+                if (snapshot.has("estimateId") && !snapshot.isNull("estimateId")) expense.put("estimateId",snapshot.getString("estimateId"));
+                else expense.remove("estimateId");
             }
         } else if (type.equals("payment")) {
             JSONObject p = find(projects, snapshot.getString("projectId"));
