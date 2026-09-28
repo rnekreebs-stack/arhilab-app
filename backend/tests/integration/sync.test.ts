@@ -746,4 +746,44 @@ test('F4 Android journal fixture -> real HTTP/PostgreSQL -> second device, retri
   assert.equal(progressMath.item({syncId:fixture.itemId,qty:'120'},entries).completed,600000n);
   assert.equal((await pool.query('SELECT id FROM audit_logs WHERE entity_type=$1 AND entity_id=$2',
     ['progressEntry',fixture.entryId])).rowCount,3);
+  // A distinct work item makes the two-device 35 + 20 example independent of the fixture's 71 units.
+  const sharedItem=randomUUID(),firstEntry=randomUUID(),secondEntry=randomUUID();
+  assert.equal((await send([op('estimateItem',sharedItem,'create',0,{estimateId:fixture.estimateId,
+    title:'Стяжка пола',kind:'work',quantity:'120.0000',unit:'м²',stageId:fixture.stageId}),
+    op('progressEntry',firstEntry,'create',0,{projectId:fixture.projectId,estimateId:fixture.estimateId,
+      estimateItemId:sharedItem,quantity:'35.0000',businessDate:'2026-09-28'})])).results[1]?.status,'applied');
+  const folderB=await mkdtemp(join(tmpdir(),'arhilab-f4-device-b-'));
+  const folderA=await mkdtemp(join(tmpdir(),'arhilab-f4-device-a-'));
+  try {
+    const transportB=new HttpSyncTransport(base+'/api/v1',{accessToken:async()=>secondAdmin,refresh:async()=>false});
+    let deviceB=await SyncCoordinator.open(new JsonFileSyncStore(join(folderB,'state.json')),transportB,()=>true);
+    assert.equal((await deviceB.syncNow()).state,'idle');
+    assert.equal(deviceB.entities[firstEntry]?.quantity,'35.0000');
+    deviceB=await SyncCoordinator.open(new JsonFileSyncStore(join(folderB,'state.json')),transportB,()=>false);
+    assert.equal(deviceB.entities[firstEntry]?.quantity,'35.0000');
+    const proposal=op('progressEntry',secondEntry,'create',0,{projectId:fixture.projectId,
+      estimateId:fixture.estimateId,estimateItemId:sharedItem,quantity:'20.0000',businessDate:'2026-09-29'});
+    await deviceB.localWrite(secondEntry,{...proposal.payload,id:secondEntry},
+      {...proposal,payload:proposal.payload as Record<string,unknown>});
+    deviceB=await SyncCoordinator.open(new JsonFileSyncStore(join(folderB,'state.json')),transportB,()=>true);
+    assert.equal((await deviceB.syncNow()).state,'idle');
+    assert.equal((await pool.query('SELECT id FROM progress_entries WHERE id=$1',[secondEntry])).rowCount,1);
+    const transportA=new HttpSyncTransport(base+'/api/v1',{accessToken:async()=>owner,refresh:async()=>false});
+    let deviceA=await SyncCoordinator.open(new JsonFileSyncStore(join(folderA,'state.json')),transportA,()=>true);
+    assert.equal((await deviceA.syncNow()).state,'idle');
+    const completed=()=>progressMath.item({syncId:sharedItem,qty:String(deviceA.entities[sharedItem]?.quantity)},
+      [firstEntry,secondEntry].map(id=>({estimateItemId:sharedItem,quantity:String(deviceA.entities[id]?.quantity)})));
+    assert.equal(completed().completed,550000n);
+    deviceA=await SyncCoordinator.open(new JsonFileSyncStore(join(folderA,'state.json')),transportA,()=>false);
+    assert.equal(completed().completed,550000n);
+    assert.equal((await send([op('estimateItem',sharedItem,'update',1,{quantity:'50.0000'})])).results[0]?.status,'applied');
+    deviceA=await SyncCoordinator.open(new JsonFileSyncStore(join(folderA,'state.json')),transportA,()=>true);
+    assert.equal((await deviceA.syncNow()).state,'idle');
+    assert.equal(deviceA.entities[sharedItem]?.quantity,'50.0000');
+    assert.equal(progressMath.item({syncId:sharedItem,qty:'50.0000'},
+      [firstEntry,secondEntry].map(id=>({estimateItemId:sharedItem,quantity:String(deviceA.entities[id]?.quantity)}))).status,
+      'over_completed');
+    assert.equal((await pool.query<{total:number}>('SELECT count(*)::int AS total FROM progress_entries WHERE estimate_item_id=$1 AND deleted_at IS NULL',
+      [sharedItem])).rows[0]?.total,2);
+  } finally {await rm(folderA,{recursive:true,force:true});await rm(folderB,{recursive:true,force:true});}
 });
