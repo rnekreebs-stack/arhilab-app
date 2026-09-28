@@ -26,7 +26,7 @@ const specs = {
       amount:money.refine(value=>/^\d{1,16}(\.\d{1,2})?$/.test(value) && BigInt(value.replace('.',''))>0n),
       currency:z.string().regex(/^[A-Z]{3}$/),businessDate:z.iso.date(),
       description:text,note:z.string().max(1000).optional()})},
-  task: { table:'tasks', fields:{projectId:'project_id',assigneeId:'assignee_id',title:'title',status:'status'}, create:z.strictObject({projectId:uuid,assigneeId:uuid.nullable().optional(),title:text,status:z.enum(['open','in_progress','done'])}) },
+  task: { table:'tasks', fields:{projectId:'project_id',estimateId:'estimate_id',stageId:'stage_id',estimateItemId:'estimate_item_id',assigneeId:'assignee_id',title:'title',description:'description',status:'status',priority:'priority',dueDate:'due_date',completedAt:'completed_at',createdBy:'created_by'}, create:z.strictObject({projectId:uuid,estimateId:uuid.nullable().optional(),stageId:uuid.nullable().optional(),estimateItemId:uuid.nullable().optional(),assigneeId:uuid.nullable().optional(),title:text,description:z.string().max(1000).optional(),status:z.enum(['open','in_progress','done']),priority:z.enum(['normal','high','urgent']).optional(),dueDate:z.iso.date().nullable().optional()}) },
   photo: {table:'photos',fields:{projectId:'project_id',filename:'original_filename',mimeType:'mime_type',byteSize:'byte_size',sha256:'content_sha256',status:'status'},create:z.strictObject({projectId:uuid})},
   document: {table:'documents',fields:{projectId:'project_id',filename:'original_filename',mimeType:'mime_type',byteSize:'byte_size',sha256:'content_sha256',status:'status'},create:z.strictObject({projectId:uuid})},
 } as const;

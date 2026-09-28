@@ -27,6 +27,8 @@ try {
   if(expense.rowCount!==2) throw new Error('F3 project and estimate ownership constraints missing');
   const execution=await pool.query("SELECT conname FROM pg_constraint WHERE conrelid='progress_entries'::regclass AND contype='f'");
   if(execution.rowCount!==4) throw new Error('F4 journal must bind organization, project, estimate, item, stage and author');
+  const task=await pool.query("SELECT conname FROM pg_constraint WHERE conrelid='tasks'::regclass AND conname IN ('tasks_estimate_owner','tasks_stage_owner','tasks_item_owner','tasks_created_by_owner','tasks_completion_valid')");
+  if(task.rowCount!==5) throw new Error('F5 task context, author or completion constraints missing');
   const currency=await pool.query<{is_nullable:string}>("SELECT is_nullable FROM information_schema.columns WHERE table_name='estimates' AND column_name='currency'");
   if(currency.rows[0]?.is_nullable!=='YES') throw new Error('Legacy estimate currency must be unresolved');
   const a = randomUUID(), b = randomUUID(), project = randomUUID();

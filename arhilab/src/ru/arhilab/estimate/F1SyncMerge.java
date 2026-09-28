@@ -22,7 +22,7 @@ final class F1SyncMerge {
 
     static void apply(JSONObject db, JSONObject change) throws Exception {
         String type = change.getString("entityType"), id = change.getString("entityId");
-        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment") && !type.equals("expense") && !type.equals("stage") && !type.equals("progressEntry")) return;
+        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment") && !type.equals("expense") && !type.equals("stage") && !type.equals("progressEntry") && !type.equals("task")) return;
         JSONObject sync = F1SyncLedger.state(db);
         String key = type + ":" + id;
         JSONArray jobs = sync.getJSONArray("operations");
@@ -109,6 +109,31 @@ final class F1SyncMerge {
                     if(snapshot.has("historicalStageId")&&!snapshot.isNull("historicalStageId"))
                         entry.put("historicalStageId",snapshot.getString("historicalStageId"));
                     else entry.put("historicalStageId","");
+                }
+            }
+        } else if(type.equals("task")) {
+            JSONObject p=find(projects,snapshot.optString("projectId",""));
+            if(p==null && !deleted)throw new IllegalStateException("Отсутствует объект задачи");
+            if(p==null){for(int i=0;i<projects.length();i++){
+                JSONObject candidate=projects.getJSONObject(i);
+                if(candidate.optJSONArray("tasks")!=null&&find(candidate.getJSONArray("tasks"),id)!=null){p=candidate;break;}
+            }}
+            if(p!=null){F5Tasks.ensure(p);JSONArray tasks=p.getJSONArray("tasks");
+                if(deleted)remove(tasks,id);
+                else {
+                    JSONObject task=find(tasks,id);
+                    if(task==null){task=new JSONObject().put("id",id).put("progress",0);tasks.put(task);}
+                    String status=snapshot.getString("status");
+                    task.put("name",snapshot.getString("title"))
+                        .put("comment",snapshot.optString("description",""))
+                        .put("taskStatus",status)
+                        .put("status",status.equals("done")?"Завершено":status.equals("in_progress")?"В работе":"Не начато")
+                        .put("done",status.equals("done"))
+                        .put("priority",snapshot.optString("priority","normal"))
+                        .put("planDate",snapshot.isNull("dueDate")?"":snapshot.getString("dueDate"));
+                    for(String field:new String[]{"assigneeId","estimateId","stageId","estimateItemId","createdBy","completedAt"})
+                        if(snapshot.has(field)&&!snapshot.isNull(field))task.put(field,snapshot.get(field));
+                        else task.remove(field);
                 }
             }
         } else if (type.equals("expense")) {

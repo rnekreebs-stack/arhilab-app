@@ -239,6 +239,11 @@ public class MainActivity extends Activity {
   JSONObject entry=F4Execution.saveEntry(e,a,user().getString("id"));save();result.put("entryId",entry.getString("id"));break;}
  case "f4ProgressDelete":{admin();JSONObject p=project(required(a,"project"));LocalEstimates.ensure(p);JSONObject e=find(p.getJSONArray("estimates"),required(a,"estimate"));
   F4Execution.deleteEntry(e,required(a,"id"));save();break;}
+ case "f5TaskSave":{admin();JSONObject p=project(required(a,"project"));LocalEstimates.ensure(p);
+  JSONObject task=F5Tasks.save(p,a);save();result.put("taskId",task.getString("id"));break;}
+ case "f5TaskDelete":{admin();JSONObject p=project(required(a,"project"));JSONArray rows=p.getJSONArray("tasks");
+  String id=required(a,"id");boolean found=false;for(int i=0;i<rows.length();i++)if(id.equals(rows.getJSONObject(i).getString("id"))){rows.remove(i);found=true;break;}
+  if(!found)throw new Exception("Задача не найдена");save();break;}
  case "task":{editor();JSONObject p=project(a.getString("project"));p.getJSONArray("tasks").put(new JSONObject().put("id",UUID.randomUUID().toString()).put("name",required(a,"name")).put("done",false).put("progress",0).put("status","Не начато").put("planDate",a.optString("planDate")).put("responsible",a.optString("responsible")).put("comment",a.optString("comment")));save();break;}
  case "taskUpdate":{JSONObject t=find(project(a.getString("project")).getJSONArray("tasks"),a.getString("id"));int progress=a.getInt("progress");if(progress<0||progress>100)throw new Exception("Прогресс должен быть от 0 до 100%");String status=a.getString("status");if(!Arrays.asList("Не начато","В работе","Приостановлено","Завершено").contains(status))throw new Exception("Неверный статус этапа");t.put("progress",progress).put("status",status).put("done",status.equals("Завершено")).put("planDate",a.optString("planDate")).put("actualDate",a.optString("actualDate")).put("responsible",a.optString("responsible")).put("comment",a.optString("comment"));save();break;}
  case "taskDone":{JSONObject p=project(a.getString("project"));find(p.getJSONArray("tasks"),a.getString("id")).put("done",a.getBoolean("done"));save();break;}

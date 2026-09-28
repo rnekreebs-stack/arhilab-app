@@ -19,7 +19,7 @@ public final class F4ExecutionTest {
             .put("payments",new JSONArray()).put("tasks",new JSONArray());
         JSONObject db=DataMigration.migrate(new JSONObject().put("schemaVersion",5)
             .put("users",new JSONArray()).put("projects",new JSONArray().put(project)));
-        check(db.getInt("schemaVersion")==6,"local migration version");
+        check(db.getInt("schemaVersion")==DataMigration.CURRENT,"local migration version");
         project=db.getJSONArray("projects").getJSONObject(0);
         JSONObject estimate=project.getJSONArray("estimates").getJSONObject(0);
         String estimateId=estimate.getString("id");

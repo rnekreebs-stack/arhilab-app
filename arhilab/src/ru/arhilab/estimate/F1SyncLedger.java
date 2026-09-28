@@ -37,8 +37,14 @@ final class F1SyncLedger {
             JSONObject project = projects.getJSONObject(p);
             for (String field : new String[]{"assigned"})
                 if (project.has(field) && !project.optString(field).isEmpty() && !project.optString(field).equals("0")) return true;
-            for (String field : new String[]{"tasks", "notes", "photos", "estimatePhotos"})
+            for (String field : new String[]{"notes", "photos", "estimatePhotos"})
                 if (project.optJSONArray(field) != null && project.getJSONArray(field).length() > 0) return true;
+            JSONArray tasks=project.optJSONArray("tasks");
+            if(tasks!=null)for(int i=0;i<tasks.length();i++){
+                JSONObject task=tasks.getJSONObject(i);
+                if(task.optInt("progress",0)!=0 || !task.optString("responsible","").isEmpty() ||
+                   !task.optString("actualDate","").isEmpty() || task.optString("status","").equals("Приостановлено"))return true;
+            }
             JSONArray payments=project.optJSONArray("payments");
             if(payments!=null)for(int i=0;i<payments.length();i++){
                 JSONObject payment=payments.getJSONObject(i);
@@ -185,6 +191,21 @@ final class F1SyncLedger {
                 if(payment.has("paidAt")&&!payment.isNull("paidAt"))payload.put("paidAt",payment.getString("paidAt"));
                 row(rows, "payment", payment.getString("id"), payload);
             }
+            JSONArray tasks=project.optJSONArray("tasks");
+            if(tasks!=null)for(int i=0;i<tasks.length();i++){
+                JSONObject task=tasks.getJSONObject(i);
+                JSONObject payload=new JSONObject().put("projectId",projectId)
+                    .put("title",task.getString("name"))
+                    .put("description",task.optString("comment",""))
+                    .put("status",task.optString("taskStatus",task.optBoolean("done")?"done":"open"))
+                    .put("priority",task.optString("priority","normal"))
+                    .put("dueDate",task.optString("planDate","").isEmpty()?JSONObject.NULL:task.getString("planDate"))
+                    .put("assigneeId",task.optString("assigneeId","").isEmpty()?JSONObject.NULL:task.getString("assigneeId"))
+                    .put("estimateId",task.optString("estimateId","").isEmpty()?JSONObject.NULL:task.getString("estimateId"))
+                    .put("stageId",task.optString("stageId","").isEmpty()?JSONObject.NULL:task.getString("stageId"))
+                    .put("estimateItemId",task.optString("estimateItemId","").isEmpty()?JSONObject.NULL:task.getString("estimateItemId"));
+                row(rows,"task",task.getString("id"),payload);
+            }
         }
         return rows;
     }
@@ -250,7 +271,7 @@ final class F1SyncLedger {
         ArrayList<String> changed = new ArrayList<>();
         for (Iterator<String> keys = rows.keys(); keys.hasNext();) changed.add(keys.next());
         // Store in foreign-key dependency order even though org.json does not promise insertion order.
-        for (String type : new String[]{"project", "estimate", "stage", "estimateItem", "progressEntry", "payment", "expense"}) {
+        for (String type : new String[]{"project", "estimate", "stage", "estimateItem", "progressEntry", "payment", "expense", "task"}) {
             for (String key : changed) {
                 if (!key.startsWith(type + ":")) continue;
                 JSONObject payload = rows.getJSONObject(key);
@@ -264,7 +285,7 @@ final class F1SyncLedger {
             String key = keys.next();
             if (!rows.has(key)) removed.add(key);
         }
-        for (String type : new String[]{"expense", "payment", "progressEntry", "estimateItem", "stage", "estimate", "project"}) {
+        for (String type : new String[]{"task", "expense", "payment", "progressEntry", "estimateItem", "stage", "estimate", "project"}) {
             for (String key : removed) {
                 if (!key.startsWith(type + ":")) continue;
                 enqueue(operations, revisions, key, "delete", new JSONObject());

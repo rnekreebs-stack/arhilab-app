@@ -172,6 +172,7 @@ function f4Execution(p){
        ${subset.map(row=>{const progress=F4Execution.item(row,entries);return `<div class="line"><div class="row"><b>${esc(row.name)}</b><span>${percent(progress)}</span></div>
          <p>${esc(F4Execution.format(progress.completed))} / ${esc(F4Execution.format(progress.planned))} ${esc(row.unit||'')} · ${caption(progress)}</p>
          <button class="secondary" onclick="f4WorkDetail('${esc(row.syncId)}')">Журнал выполнения</button>
+         <button class="secondary" onclick="f5TaskForm('',{estimateId:'${esc(e.id)}',stageId:'${esc(row.stageId||'')}',estimateItemId:'${esc(row.syncId)}'})">+ Задача</button>
          <button class="secondary" onclick="f4AssignForm('${esc(row.syncId)}')">Переместить</button></div>`}).join('')||'<p class="small">В этом этапе пока нет работ.</p>'}
        ${stage.id?`<button class="danger" onclick="f4StageDelete('${esc(stage.id)}')">Удалить этап</button>`:''}</div>`}).join('');
 }

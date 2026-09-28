@@ -16,7 +16,9 @@ export async function snapshotForBootstrap(ctx:Identity,afterCursorRead?:()=>Pro
       const spec=specification(type);
       if(!spec) continue;
       const files=type==='photo'||type==='document'?" AND (status='available' OR deleted_at IS NOT NULL)":'';
-      const rows=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE organization_id=$1${files} ORDER BY id LIMIT $2`,[ctx.organizationId,MAX_BOOTSTRAP_ENTITIES+1-entities.length]);
+      const assigned=type==='task'&&ctx.role==='worker'?' AND assignee_id=$3':'';
+      const rows=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE organization_id=$1${files}${assigned} ORDER BY id LIMIT $2`,
+        assigned?[ctx.organizationId,MAX_BOOTSTRAP_ENTITIES+1-entities.length,ctx.userId]:[ctx.organizationId,MAX_BOOTSTRAP_ENTITIES+1-entities.length]);
       for(const row of rows.rows) {
         const value:Record<string,unknown>={id:row.id,revision:Number(row.revision),deletedAt:row.deleted_at};
         for(const [field,column] of Object.entries(spec.fields)) value[field]=row[column];

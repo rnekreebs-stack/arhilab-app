@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { pool } from '../src/database/pool.js';
 
 const stage = Number(process.argv[2]);
-if (!Number.isInteger(stage) || stage < 0 || stage > 14) throw Error('Invalid migration stage');
+if (!Number.isInteger(stage) || stage < 0 || stage > 15) throw Error('Invalid migration stage');
 const requirements = [
   ['organizations','TABLE',1],['users','TABLE',1],['sync_operations','TABLE',1],
   ['sessions','TABLE',2],['refresh_credentials','TABLE',2],
@@ -35,6 +35,11 @@ const requirements = [
   ['stages.estimate_id','COLUMN',14],['estimate_items.stage_id','COLUMN',14],
   ['progress_entries','TABLE',14],['progress_entries.historical_stage_id','COLUMN',14],
   ['stages_estimate_active_idx','INDEX',14],['progress_entries_item_active_idx','INDEX',14],
+  ['tasks.description','COLUMN',15],['tasks.due_date','COLUMN',15],
+  ['tasks.priority','COLUMN',15],['tasks.completed_at','COLUMN',15],
+  ['tasks.estimate_id','COLUMN',15],['tasks.stage_id','COLUMN',15],
+  ['tasks.estimate_item_id','COLUMN',15],['tasks.created_by','COLUMN',15],
+  ['tasks_due_active_idx','INDEX',15],['tasks_assignee_active_idx','INDEX',15],
 ] as const;
 try {
   for (const [name,kind,fromStage] of requirements) {
