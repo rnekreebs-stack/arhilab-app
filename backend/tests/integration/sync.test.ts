@@ -18,6 +18,9 @@ const expenseMath=(createRequire(import.meta.url)('../../../arhilab/assets/f2-pa
   summary:(estimate:Record<string,unknown>,payments:Array<Record<string,unknown>>,
     expenses:Array<Record<string,unknown>>,total:string)=>{actualExpenses:bigint;cashResult:bigint;forecastGrossProfit:bigint;forecastMargin:bigint|null};
 }}).F3Expenses;
+const progressMath=createRequire(import.meta.url)('../../../arhilab/assets/f4-execution.js') as {
+  item:(row:{syncId:string;qty:string},entries:Array<{estimateItemId:string;quantity:string}>)=>{completed:bigint;remaining:bigint;status:string};
+};
 let server:Server,base:string;
 const orgA=randomUUID(),orgB=randomUUID(),adminA=randomUUID(),adminB=randomUUID(),manager=randomUUID(),worker=randomUUID();
 const deviceA=randomUUID(),deviceA2=randomUUID(),deviceB=randomUUID();
@@ -652,4 +655,90 @@ test('F3 expense owner, amount, currency isolation, foreign estimate and concurr
   // Explicit project-only values cannot be silently included in a selected estimate.
   const snapshot=await request('/api/v1/sync/snapshot','GET',undefined,owner);
   assert.equal((snapshot.body.entities as Array<{entityId:string;snapshot:{estimateId:string|null}}>).find(x=>x.entityId===projectOnly)?.snapshot.estimateId,null);
+});
+
+test('F4 Android journal fixture -> real HTTP/PostgreSQL -> second device, retries, conflicts and privacy',async()=>{
+  await restartTestHttpServer();
+  const fixture=JSON.parse(await readFile(process.env.F4_CLIENT_FIXTURE_PATH!,'utf8')) as {
+    operations:Operation[];projectId:string;estimateId:string;stageId:string;itemId:string;entryId:string};
+  assert.deepEqual(fixture.operations.map(x=>x.entityType),
+    ['project','estimate','stage','estimateItem','progressEntry','progressEntry','progressEntry']);
+  const first=await push(fixture.operations);
+  assert.deepEqual(first.results.map(x=>x.status),Array(7).fill('applied'));
+  const retry=await push([fixture.operations[4]!]);
+  assert.equal(retry.results[0]?.status,'duplicate');
+  assert.equal((await pool.query('SELECT id FROM progress_entries WHERE id=$1',[fixture.entryId])).rowCount,1);
+  assert.equal((await pool.query('SELECT sequence FROM sync_changes WHERE entity_type=$1 AND entity_id=$2',
+    ['progressEntry',fixture.entryId])).rowCount,1);
+  const rows=await pool.query<{id:string;quantity:string;created_by:string;historical_stage_id:string|null}>(
+    'SELECT id,quantity,created_by,historical_stage_id FROM progress_entries WHERE organization_id=$1 AND estimate_item_id=$2 AND deleted_at IS NULL',[orgA,fixture.itemId]);
+  assert.equal(rows.rowCount,3);assert.equal(rows.rows[0]?.created_by,adminA);
+  assert.ok(rows.rows.every(x=>x.historical_stage_id===fixture.stageId));
+  const total=()=>pool.query<{completed:string}>(`SELECT COALESCE(sum(quantity),0)::text AS completed FROM progress_entries
+    WHERE organization_id=$1 AND estimate_item_id=$2 AND deleted_at IS NULL`,[orgA,fixture.itemId]);
+  assert.equal((await total()).rows[0]?.completed,'71.0000');
+  const workerSnapshot=await request('/api/v1/sync/snapshot','GET',undefined,accessWorker);
+  assert.equal(workerSnapshot.status,200);
+  const workerRows=workerSnapshot.body.entities as Array<{entityType:string;entityId:string;snapshot:Record<string,unknown>}>;
+  assert.equal(workerRows.some(x=>x.entityType==='payment'||x.entityType==='expense'),false);
+  const workerItem=workerRows.find(x=>x.entityId===fixture.itemId)?.snapshot;
+  assert.equal(workerItem?.title,'Штукатурка стен');
+  for(const field of ['price','materialPrice','privateData'])assert.equal(workerItem && field in workerItem,false);
+  const feed=await request('/api/v1/sync/pull?cursor='+String(BigInt(String(first.results[0]?.sequence))-1n)+'&limit=50','GET',undefined,accessWorker);
+  const workerChange=(feed.body.changes as Array<{entityId:string;snapshot:Record<string,unknown>}>).find(x=>x.entityId===fixture.itemId);
+  assert.equal(workerChange?.snapshot.price,undefined);
+  assert.equal((await push([op('progressEntry',randomUUID(),'create',0,{projectId:fixture.projectId,
+    estimateId:fixture.estimateId,estimateItemId:fixture.itemId,quantity:'1',businessDate:'2026-09-28'})],accessWorker)).status,403);
+  const foreign=await push([op('progressEntry',randomUUID(),'create',0,{projectId:fixture.projectId,
+    estimateId:fixture.estimateId,estimateItemId:fixture.itemId,quantity:'1',businessDate:'2026-09-28'})],accessB);
+  assert.equal(foreign.results[0]?.status,'rejected');
+  const wrongStage=await push([op('stage',randomUUID(),'create',0,{projectId:fixture.projectId,
+    estimateId:randomUUID(),name:'Wrong',position:0})]);
+  assert.equal(wrongStage.results[0]?.status,'rejected');
+  const badAuthor=await push([op('progressEntry',randomUUID(),'create',0,{projectId:fixture.projectId,
+    estimateId:fixture.estimateId,estimateItemId:fixture.itemId,quantity:'1',businessDate:'2026-09-28',createdBy:worker})]);
+  assert.equal(badAuthor.results[0]?.code,'invalid_payload');
+  const tooMuch=await push([op('progressEntry',randomUUID(),'create',0,{projectId:fixture.projectId,
+    estimateId:fixture.estimateId,estimateItemId:fixture.itemId,quantity:'50',businessDate:'2026-09-28'})]);
+  assert.equal(tooMuch.results[0]?.code,'progress_exceeds_plan');
+  const add=(quantity:string)=>op('progressEntry',randomUUID(),'create',0,{projectId:fixture.projectId,
+    estimateId:fixture.estimateId,estimateItemId:fixture.itemId,quantity,businessDate:'2026-09-28'});
+  const [additionA,additionB]=await Promise.all([push([add('10')],accessA),push([add('15')],accessA2)]);
+  assert.deepEqual([additionA.results[0]?.status,additionB.results[0]?.status],['applied','applied']);
+  assert.equal((await total()).rows[0]?.completed,'96.0000');
+  const nextStage=randomUUID(),alternateStage=randomUUID();
+  assert.equal((await push([op('stage',nextStage,'create',0,{projectId:fixture.projectId,
+    estimateId:fixture.estimateId,name:'Чистовая отделка',position:1}),op('stage',alternateStage,'create',0,
+    {projectId:fixture.projectId,estimateId:fixture.estimateId,name:'Электрика',position:2})])).results[0]?.status,'applied');
+  const moved=await push([op('estimateItem',fixture.itemId,'update',1,{stageId:nextStage})]);
+  assert.equal(moved.results[0]?.status,'applied');
+  const staleAssignment=await push([op('estimateItem',fixture.itemId,'update',1,{stageId:alternateStage})],accessA2);
+  assert.equal(staleAssignment.results[0]?.status,'conflict');
+  const currentStage=await pool.query<{stage_id:string}>('SELECT stage_id FROM estimate_items WHERE id=$1',[fixture.itemId]);
+  assert.equal(currentStage.rows[0]?.stage_id,nextStage);
+  assert.equal((await pool.query<{historical_stage_id:string}>('SELECT historical_stage_id FROM progress_entries WHERE id=$1',
+    [fixture.entryId])).rows[0]?.historical_stage_id,fixture.stageId);
+  assert.equal((await push([op('estimateItem',fixture.itemId,'delete',2,{})])).results[0]?.code,'item_has_progress_history');
+  assert.equal((await push([op('stage',nextStage,'delete',1,{})])).results[0]?.code,'stage_has_items');
+  const foreignEstimate=randomUUID();
+  assert.equal((await push([op('estimate',foreignEstimate,'create',0,{projectId:fixture.projectId,name:'Смета Б'})])).results[0]?.status,'applied');
+  assert.equal((await push([op('stage',randomUUID(),'create',0,{projectId:fixture.projectId,
+    estimateId:foreignEstimate,name:'Другой этап',position:0})])).results[0]?.status,'applied');
+  const wrongScope=await push([op('progressEntry',randomUUID(),'create',0,{projectId:fixture.projectId,
+    estimateId:foreignEstimate,estimateItemId:fixture.itemId,quantity:'1',businessDate:'2026-09-28'})]);
+  assert.equal(wrongScope.results[0]?.code,'invalid_progress_context');
+  const entryUpdate=op('progressEntry',fixture.entryId,'update',1,{note:'новый комментарий'});
+  assert.equal((await push([entryUpdate])).results[0]?.status,'applied');
+  assert.equal((await push([op('progressEntry',fixture.entryId,'update',1,{quantity:'30'})],accessA2)).results[0]?.status,'conflict');
+  assert.equal((await push([op('progressEntry',fixture.entryId,'delete',2,{})])).results[0]?.status,'applied');
+  assert.equal((await push([op('progressEntry',fixture.entryId,'update',2,{note:'воскресить'})],accessA2)).results[0]?.status,'conflict');
+  assert.equal((await total()).rows[0]?.completed,'60.0000');
+  const second=await request('/api/v1/sync/snapshot','GET',undefined,accessA2);
+  const entries=(second.body.entities as Array<{entityType:string;entityId:string;snapshot:Record<string,unknown>}>)
+    .filter(x=>x.entityType==='progressEntry'&&!x.snapshot.deletedAt)
+    .filter(x=>x.snapshot.estimateItemId===fixture.itemId)
+    .map(x=>({estimateItemId:String(x.snapshot.estimateItemId),quantity:String(x.snapshot.quantity)}));
+  assert.equal(progressMath.item({syncId:fixture.itemId,qty:'120'},entries).completed,600000n);
+  assert.equal((await pool.query('SELECT id FROM audit_logs WHERE entity_type=$1 AND entity_id=$2',
+    ['progressEntry',fixture.entryId])).rowCount,3);
 });

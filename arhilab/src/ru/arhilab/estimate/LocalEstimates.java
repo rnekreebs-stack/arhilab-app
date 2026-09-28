@@ -54,5 +54,6 @@ final class LocalEstimates {
                 if (!item.has("syncId")) item.put("syncId",itemId(projectId,kind,item,i));
             }
         }
+        for(int i=0;i<estimates.length();i++)F4Execution.ensure(estimates.getJSONObject(i));
     }
 }

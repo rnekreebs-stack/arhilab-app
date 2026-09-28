@@ -22,7 +22,7 @@ final class F1SyncMerge {
 
     static void apply(JSONObject db, JSONObject change) throws Exception {
         String type = change.getString("entityType"), id = change.getString("entityId");
-        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment") && !type.equals("expense")) return;
+        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment") && !type.equals("expense") && !type.equals("stage") && !type.equals("progressEntry")) return;
         JSONObject sync = F1SyncLedger.state(db);
         String key = type + ":" + id;
         JSONArray jobs = sync.getJSONArray("operations");
@@ -81,6 +81,34 @@ final class F1SyncMerge {
                     if (privateData != null) for (String field : new String[]{"materialMarkup", "deliveryCost", "overhead", "otherCost"})
                         if (privateData.has(field)) p.put(field, privateData.get(field));
                     LocalEstimates.ensure(p);
+                }
+            }
+        } else if (type.equals("stage") || type.equals("progressEntry")) {
+            JSONObject p=find(projects,snapshot.getString("projectId"));
+            if(p==null)throw new IllegalStateException("Отсутствует объект журнала выполнения");
+            LocalEstimates.ensure(p);
+            JSONObject e=find(p.getJSONArray("estimates"),snapshot.getString("estimateId"));
+            if(e==null)throw new IllegalStateException("Отсутствует смета журнала выполнения");
+            F4Execution.ensure(e);
+            JSONArray rows=e.getJSONArray(type.equals("stage")?"executionStages":"progressEntries");
+            if(deleted)remove(rows,id);
+            else {
+                JSONObject entry=find(rows,id);
+                if(entry==null){entry=new JSONObject().put("id",id);rows.put(entry);}
+                if(type.equals("stage")){
+                    entry.put("name",snapshot.getString("name"))
+                        .put("description",snapshot.optString("description",""))
+                        .put("position",snapshot.optInt("position",0));
+                } else {
+                    F4Execution.item(e,snapshot.getString("estimateItemId"));
+                    entry.put("estimateItemId",snapshot.getString("estimateItemId"))
+                        .put("quantity",snapshot.get("quantity"))
+                        .put("businessDate",snapshot.getString("businessDate"))
+                        .put("note",snapshot.optString("note",""))
+                        .put("createdBy",snapshot.getString("createdBy"));
+                    if(snapshot.has("historicalStageId")&&!snapshot.isNull("historicalStageId"))
+                        entry.put("historicalStageId",snapshot.getString("historicalStageId"));
+                    else entry.put("historicalStageId","");
                 }
             }
         } else if (type.equals("expense")) {
@@ -148,6 +176,8 @@ final class F1SyncMerge {
                 item.put("syncId", id).put("name", snapshot.getString("title"))
                     .put("qty", snapshot.get("quantity")).put("price", snapshot.get("price"))
                     .put("unit", snapshot.optString("unit", ""));
+                if(snapshot.has("stageId")&&!snapshot.isNull("stageId"))item.put("stageId",snapshot.getString("stageId"));
+                else item.remove("stageId");
                 if (kind.equals("work")) {
                     item.put("coef", snapshot.optString("coefficient", "1"))
                         .put("autoMaterial", snapshot.optBoolean("autoMaterial"))

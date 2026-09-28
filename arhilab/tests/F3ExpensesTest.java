@@ -15,7 +15,7 @@ public final class F3ExpensesTest {
         project=db.getJSONArray("projects").getJSONObject(0);
         String estimateId=project.getString("legacyEstimateId");
         project.getJSONArray("estimates").getJSONObject(0).put("currency","EUR");
-        check(project.getJSONArray("expenses").length()==0&&db.getInt("schemaVersion")==5,"upgrade dropped expenses");
+        check(project.getJSONArray("expenses").length()==0&&db.getInt("schemaVersion")==DataMigration.CURRENT,"upgrade dropped expenses");
         JSONObject expense=new JSONObject().put("id",expenseId).put("estimateId",estimateId)
             .put("category","materials").put("amount","210000.00").put("currency","EUR")
             .put("date","2026-09-27").put("description","Закупка материалов").put("note","");

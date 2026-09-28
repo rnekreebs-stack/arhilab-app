@@ -106,6 +106,16 @@ final class F1SyncLedger {
                     .put("discount", decimal(estimate.opt("discount"), 2))
                     .put("currency", estimate.has("currency") ? estimate.getString("currency") : JSONObject.NULL)
                     .put("privateData", estimatePrivate(estimate, incompleteLegacy)));
+                F4Execution.ensure(estimate);
+                JSONArray stages=estimate.getJSONArray("executionStages");
+                for(int i=0;i<stages.length();i++) {
+                    JSONObject stage=stages.getJSONObject(i);
+                    row(rows,"stage",stage.getString("id"),new JSONObject()
+                        .put("projectId",projectId).put("estimateId",estimateId)
+                        .put("name",stage.getString("name"))
+                        .put("description",stage.optString("description",""))
+                        .put("position",stage.optInt("position",i)));
+                }
                 for (String kind : new String[]{"lines", "materials"}) {
                     JSONArray items = estimate.optJSONArray(kind);
                     if (items == null) continue;
@@ -127,8 +137,19 @@ final class F1SyncLedger {
                         String catalogKey = item.optString("key", "");
                         if (!catalogKey.isEmpty()) payload.put("catalogKey", catalogKey);
                         payload.put("privateData", itemPrivate(item));
+                        payload.put("stageId",item.has("stageId")?item.getString("stageId"):JSONObject.NULL);
                         row(rows, "estimateItem", item.getString("syncId"), payload);
                     }
+                }
+                JSONArray progress=estimate.getJSONArray("progressEntries");
+                for(int i=0;i<progress.length();i++) {
+                    JSONObject entry=progress.getJSONObject(i);
+                    row(rows,"progressEntry",entry.getString("id"),new JSONObject()
+                        .put("projectId",projectId).put("estimateId",estimateId)
+                        .put("estimateItemId",entry.getString("estimateItemId"))
+                        .put("quantity",decimal(entry.get("quantity"),4))
+                        .put("businessDate",entry.getString("businessDate"))
+                        .put("note",entry.optString("note","")));
                 }
             }
             JSONArray payments = project.optJSONArray("payments");
@@ -229,7 +250,7 @@ final class F1SyncLedger {
         ArrayList<String> changed = new ArrayList<>();
         for (Iterator<String> keys = rows.keys(); keys.hasNext();) changed.add(keys.next());
         // Store in foreign-key dependency order even though org.json does not promise insertion order.
-        for (String type : new String[]{"project", "estimate", "estimateItem", "payment", "expense"}) {
+        for (String type : new String[]{"project", "estimate", "stage", "estimateItem", "progressEntry", "payment", "expense"}) {
             for (String key : changed) {
                 if (!key.startsWith(type + ":")) continue;
                 JSONObject payload = rows.getJSONObject(key);
@@ -243,7 +264,7 @@ final class F1SyncLedger {
             String key = keys.next();
             if (!rows.has(key)) removed.add(key);
         }
-        for (String type : new String[]{"expense", "payment", "estimateItem", "estimate", "project"}) {
+        for (String type : new String[]{"expense", "payment", "progressEntry", "estimateItem", "stage", "estimate", "project"}) {
             for (String key : removed) {
                 if (!key.startsWith(type + ":")) continue;
                 enqueue(operations, revisions, key, "delete", new JSONObject());
