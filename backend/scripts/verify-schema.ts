@@ -23,7 +23,7 @@ try {
   if(restricted.rowCount!==2) throw new Error('Admin-only estimate fields missing');
   const payment=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name='payments' AND column_name IN ('estimate_id','payment_kind','paid_amount','business_date','comment')");
   if(payment.rowCount!==5) throw new Error('F2 payment fields missing');
-  const expense=await pool.query("SELECT conname FROM pg_constraint WHERE conrelid='expenses'::regclass AND contype='f'");
+  const expense=await pool.query<{conname:string}>("SELECT conname FROM pg_constraint WHERE conrelid='expenses'::regclass AND contype='f'");
   if(expense.rowCount!==3 || !expense.rows.some(row=>row.conname==='expenses_procurement_request_owner'))
     throw new Error('F3/F6 expense project, estimate or procurement ownership constraints missing');
   const execution=await pool.query("SELECT conname FROM pg_constraint WHERE conrelid='progress_entries'::regclass AND contype='f'");
