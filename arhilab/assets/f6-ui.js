@@ -32,11 +32,11 @@ function f6ProcurementPage(p){
  ${Arhilab.procurement(estimate&&!estimate.legacy?estimate:p,C).rows.slice(0,100).map(x=>`<div class="line">${esc(x.material.name)} · ${esc(x.work)} · ${x.qty??'количество не задано'} ${esc(x.material.unit||'')}
  <button class="secondary" onclick="f6RequestForm('', '${esc(x.sku)}','${esc(x.ref)}')">Подтвердить заявку</button></div>`).join('')||'<p class="small">Автоматический комплект для этой сметы не задан. Создайте заявку вручную.</p>'}</div>`:''}`;
 }
-function f6RequestForm(id='',sku='',ref=''){
+function f6RequestForm(id='',sku='',ref='',itemId=''){
  const p=current(),r=(p.procurementRequests||[]).find(x=>x.id===id)||{},material=C.materials.find(x=>x.id===(sku||r.catalogSku));
  const estimate=(p.estimates||[]).find(e=>e.id===(r.estimateId||selectedEstimateId||p.legacyEstimateId));
  const source=estimate&&!estimate.legacy?estimate:p;
- const line=(source.lines||[]).find(x=>ref.startsWith(x.id+':'))||(source.materials||[]).find(x=>x.id===ref);
+ const line=(source.lines||[]).find(x=>ref.startsWith(x.id+':')||x.syncId===itemId)||(source.materials||[]).find(x=>x.id===ref);
  const plan=Arhilab.procurement(source,C).rows.find(x=>x.ref===ref);
  openModal(id?'Изменить заявку':'Новая заявка',`<form onsubmit="return submitForm(this,'f6RequestSave')"><input type="hidden" name="project" value="${esc(pid)}"><input type="hidden" name="id" value="${esc(id)}">
  ${select('catalogSku','Материал каталога',[['','Ручной материал'],...C.materials.map(x=>[x.id,x.name+' · '+x.id])],r.catalogSku||sku)}
@@ -51,6 +51,40 @@ function f6RequestForm(id='',sku='',ref=''){
  ${select('assigneeId','Ответственный',[['','Не назначен'],...(S.users||[]).map(u=>[u.id,u.name])],r.assigneeId||'')}
  ${footer(id?'Сохранить':'Создать заявку')}</form>`);
 }
+
+// Keep the F4 work card operational: group quantities only for the same SKU and unit.
+function f6WorkProcurement(p,estimate,row){
+ const source=estimate.legacy?p:estimate;
+ const plans=Arhilab.procurement(source,C).rows.filter(x=>x.ref.startsWith(row.id+':'));
+ const requests=(p.procurementRequests||[]).filter(r=>r.estimateId===estimate.id&&r.estimateItemId===row.syncId);
+ const receipts=p.procurementReceipts||[];
+ const groups=new Map();
+ for(const plan of plans){const key=plan.sku+'\u0000'+(plan.material.unit||'');
+  if(!groups.has(key))groups.set(key,{sku:plan.sku,unit:plan.material.unit||'',need:0n,known:true,requests:[]});
+  const group=groups.get(key);if(plan.qty==null)group.known=false;else group.need+=f6Units(plan.qty);
+ }
+ for(const request of requests){const key=(request.catalogSku||request.title)+'\u0000'+request.unit;
+  if(!groups.has(key))groups.set(key,{sku:request.catalogSku||'',unit:request.unit,need:0n,known:false,requests:[]});
+  groups.get(key).requests.push(request);
+ }
+ let html='<h3>Материалы и снабжение</h3>';
+ if(!plans.length)html+='<p class="small">Автоматический комплект материалов для этой работы не задан</p>';
+ for(const group of groups.values()){
+  const claimed=group.requests.reduce((n,r)=>n+f6Units(r.requestedQuantity),0n);
+  const received=group.requests.reduce((n,r)=>n+receipts.filter(x=>x.requestId===r.id).reduce((sum,x)=>sum+f6Units(x.quantity),0n),0n);
+  html+=`<div class="line"><b>${esc(group.sku||group.requests[0]?.title||'Материал')}</b> · ${esc(group.unit)}
+  <p>Потребность: ${group.known?f6Format(group.need):'уточнить'} · Заявлено: ${f6Format(claimed)} · Получено: ${f6Format(received)} · Осталось: ${received>claimed?'превышение '+f6Format(received-claimed):f6Format(claimed-received)}</p>
+  ${group.requests.map(r=>`<p class="small">Заявка ${esc(r.id)} · ${esc(r.title)} · ${esc(r.status)}</p>`).join('')}</div>`;
+ }
+ if(S.user.role==='admin')html+=`<button class="secondary" onclick="f6RequestForm('', '', '', '${esc(row.syncId)}')">Создать заявку вручную</button>`;
+ return html;
+}
+const f6PreviousWorkDetail=f4WorkDetail;
+f4WorkDetail=function(itemId){
+ f6PreviousWorkDetail(itemId);
+ const {p,e,lines}=f4Context(),row=lines.find(x=>x.syncId===itemId);
+ if(row)document.getElementById('modal').insertAdjacentHTML('beforeend',f6WorkProcurement(p,e,row));
+};
 function f6ReceiptForm(requestId,id=''){
  const r=(current().procurementReceipts||[]).find(x=>x.id===id)||{};
  openModal(id?'Изменить получение':'Добавить получение',`<form onsubmit="return submitForm(this,'f6ReceiptSave')"><input type="hidden" name="project" value="${esc(pid)}"><input type="hidden" name="requestId" value="${esc(requestId)}"><input type="hidden" name="id" value="${esc(id)}">
