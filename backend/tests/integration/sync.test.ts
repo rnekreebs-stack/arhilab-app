@@ -548,7 +548,9 @@ test('F3 Android offline expense -> HTTP/PostgreSQL -> second device restart, id
       [orgA,fixture.expenseId])).rowCount,1);
     assert.equal((await pool.query('SELECT id FROM audit_logs WHERE entity_type=$1 AND entity_id=$2',
       ['expense',fixture.expenseId])).rowCount,1);
-    for(const limited of [accessManager,accessWorker]){
+    const limitedManager=await login(orgA,`${manager}@test.example`,randomUUID());
+    const limitedWorker=await login(orgA,`${worker}@test.example`,randomUUID());
+    for(const limited of [limitedManager,limitedWorker]){
       assert.equal((await push([op('expense',randomUUID(),'create',0,{projectId:fixture.projectId,
         category:'other',amount:'1.00',currency:'EUR',businessDate:'2026-09-27',description:'Forbidden'})],limited)).status,403);
       const snapshot=await request('/api/v1/sync/snapshot','GET',undefined,limited);
@@ -587,39 +589,43 @@ test('F3 Android offline expense -> HTTP/PostgreSQL -> second device restart, id
       assert.equal((await pool.query('SELECT id FROM audit_logs WHERE entity_type=$1 AND entity_id=$2',
         ['expense',fixture.expenseId])).rowCount,3);
     }finally{await rm(folder,{recursive:true,force:true});}
+    const foreignAccess=await login(orgB,`${adminB}@test.example`,randomUUID());
     const alien=await push([op('expense',fixture.expenseId,'create',0,
-      {projectId:fixture.projectId,category:'other',amount:'1.00',currency:'EUR',businessDate:'2026-09-27',description:'Collision'})],accessB);
+      {projectId:fixture.projectId,category:'other',amount:'1.00',currency:'EUR',businessDate:'2026-09-27',description:'Collision'})],foreignAccess);
     assert.equal(alien.results[0]?.status,'rejected');
-    assert.equal(((await request('/api/v1/sync/snapshot','GET',undefined,accessB)).body.entities as
+    assert.equal(((await request('/api/v1/sync/snapshot','GET',undefined,foreignAccess)).body.entities as
       Array<{entityId:string}>).some(x=>x.entityId===fixture.expenseId),false);
 });
 
 test('F3 expense owner, amount, currency isolation, foreign estimate and concurrent revisions',async()=>{
+  const owner=await login(orgA,`${adminA}@test.example`,randomUUID());
+  const alternate=await login(orgA,`${adminA}@test.example`,randomUUID());
+  const foreign=await login(orgB,`${adminB}@test.example`,randomUUID());
   const project=randomUUID(),otherProject=randomUUID(),estimate=randomUUID(),foreignEstimate=randomUUID();
   const setup=await push([op('project',project,'create',0,{name:'Expense project'}),
     op('project',otherProject,'create',0,{name:'Different project'}),
     op('estimate',estimate,'create',0,{projectId:project,name:'Estimate'}),
-    op('estimate',foreignEstimate,'create',0,{projectId:otherProject,name:'Other estimate'})]);
+    op('estimate',foreignEstimate,'create',0,{projectId:otherProject,name:'Other estimate'})],owner);
   assert.ok(setup.results.every(x=>x.status==='applied'));
   const valid={projectId:project,estimateId:estimate,category:'labor',amount:'0.01',currency:'EUR',
     businessDate:'2026-09-27',description:'Work'};
   for(const bad of [{...valid,estimateId:foreignEstimate},{...valid,amount:'0.00'},
     {...valid,currency:''},{...valid,description:''},{...valid,category:'unknown'}])
-    assert.equal((await push([op('expense',randomUUID(),'create',0,bad)])).results[0]?.status,'rejected');
-  const id=randomUUID(),created=await push([op('expense',id,'create',0,valid)]);
+    assert.equal((await push([op('expense',randomUUID(),'create',0,bad)],owner)).results[0]?.status,'rejected');
+  const id=randomUUID(),created=await push([op('expense',id,'create',0,valid)],owner);
   assert.equal(created.results[0]?.status,'applied');
   const [first,second]=await Promise.all([
-    push([op('expense',id,'update',1,{amount:'0.02'})],accessA),
-    push([op('expense',id,'update',1,{amount:'0.03'})],accessA2)]);
+    push([op('expense',id,'update',1,{amount:'0.02'})],owner),
+    push([op('expense',id,'update',1,{amount:'0.03'})],alternate)]);
   assert.deepEqual([first.results[0]?.status,second.results[0]?.status].sort(),['applied','conflict']);
   assert.equal((await pool.query<{revision:string}>('SELECT revision FROM expenses WHERE id=$1',[id])).rows[0]?.revision,'2');
-  const alien=await push([op('expense',id,'update',1,{amount:'10.00'})],accessB);
+  const alien=await push([op('expense',id,'update',1,{amount:'10.00'})],foreign);
   assert.equal(alien.results[0]?.status,'rejected');
-  assert.equal((await request('/api/v1/sync/pull?cursor=0','GET',undefined,accessB)).status,200);
+  assert.equal((await request('/api/v1/sync/pull?cursor=0','GET',undefined,foreign)).status,200);
   const projectOnly=randomUUID();
-  assert.equal((await push([op('expense',projectOnly,'create',0,{...valid,estimateId:null,currency:'USD'})])).results[0]?.status,'applied');
+  assert.equal((await push([op('expense',projectOnly,'create',0,{...valid,estimateId:null,currency:'USD'})],owner)).results[0]?.status,'applied');
   assert.equal((await pool.query<{estimate_id:string|null}>('SELECT estimate_id FROM expenses WHERE id=$1',[projectOnly])).rows[0]?.estimate_id,null);
   // Explicit project-only values cannot be silently included in a selected estimate.
-  const snapshot=await request('/api/v1/sync/snapshot','GET',undefined,accessA);
+  const snapshot=await request('/api/v1/sync/snapshot','GET',undefined,owner);
   assert.equal((snapshot.body.entities as Array<{entityId:string;snapshot:{estimateId:string|null}}>).find(x=>x.entityId===projectOnly)?.snapshot.estimateId,null);
 });
