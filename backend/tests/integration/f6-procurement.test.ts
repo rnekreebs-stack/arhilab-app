@@ -49,7 +49,8 @@ test('F6 Arhilab-2 restored request and receipt replay once after restart and re
  assert.equal(linked.rows[0]?.estimate_item_id,fixture.operations[2]?.entityId);
  assert.equal((await pool.query('SELECT id FROM procurement_receipts WHERE id=$1 AND request_id=$2',[fixture.receiptId,fixture.requestId])).rowCount,1);
  assert.equal((await pool.query<{quantity:string}>('SELECT sum(quantity)::text AS quantity FROM procurement_receipts WHERE request_id=$1 AND deleted_at IS NULL',[fixture.requestId])).rows[0]?.quantity,'40.0000');
- const pull=await request('/api/v1/sync/pull?cursor=0&limit=1000');
+ const pull=await request('/api/v1/sync/pull?cursor=0&limit=100');
+ assert.equal(pull.status,200);
  const changes=pull.body.changes as Array<{entityType:string;entityId:string}>;
  assert.equal(changes.filter(x=>x.entityId===fixture.requestId).length,1);
  assert.equal(changes.filter(x=>x.entityId===fixture.receiptId).length,1);
