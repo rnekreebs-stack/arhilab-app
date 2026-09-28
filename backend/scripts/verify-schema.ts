@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../src/database/pool.js';
-const tables = ['organizations','users','devices','projects','estimates','estimate_items','materials','stages','payments','expenses','progress_entries','tasks','photos','documents','sync_operations','audit_logs'];
+const tables = ['organizations','users','devices','projects','estimates','estimate_items','materials','stages','payments','expenses','progress_entries','tasks','procurement_requests','procurement_receipts','photos','documents','sync_operations','audit_logs'];
 tables.push('sessions','refresh_credentials','sync_changes');
 try {
   const result = await pool.query<{ table_name: string }>("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name = ANY($1)", [tables]);
@@ -23,8 +23,9 @@ try {
   if(restricted.rowCount!==2) throw new Error('Admin-only estimate fields missing');
   const payment=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name='payments' AND column_name IN ('estimate_id','payment_kind','paid_amount','business_date','comment')");
   if(payment.rowCount!==5) throw new Error('F2 payment fields missing');
-  const expense=await pool.query("SELECT 1 FROM pg_constraint WHERE conrelid='expenses'::regclass AND contype='f'");
-  if(expense.rowCount!==2) throw new Error('F3 project and estimate ownership constraints missing');
+  const expense=await pool.query("SELECT conname FROM pg_constraint WHERE conrelid='expenses'::regclass AND contype='f'");
+  if(expense.rowCount!==3 || !expense.rows.some(row=>row.conname==='expenses_procurement_request_owner'))
+    throw new Error('F3/F6 expense project, estimate or procurement ownership constraints missing');
   const execution=await pool.query("SELECT conname FROM pg_constraint WHERE conrelid='progress_entries'::regclass AND contype='f'");
   if(execution.rowCount!==4) throw new Error('F4 journal must bind organization, project, estimate, item, stage and author');
   const task=await pool.query("SELECT conname FROM pg_constraint WHERE conrelid='tasks'::regclass AND conname IN ('tasks_estimate_owner','tasks_stage_owner','tasks_item_owner','tasks_created_by_owner','tasks_completion_valid')");
