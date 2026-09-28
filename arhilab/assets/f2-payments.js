@@ -41,6 +41,23 @@ const F3Expenses=(()=>{
     if(!/^[A-Z]{3}$/.test(row.currency))throw Error('Неизвестная валюта расхода');
     totals[row.currency]=(totals[row.currency]||0n)+cents(row.amount);
   }return totals;}
-  return {summary,projectTotals};
+  function projectSummary(payments,expenses){
+    const totals={};
+    function entry(currency){
+      if(!/^[A-Z]{3}$/.test(currency||''))return null;
+      return totals[currency]||(totals[currency]={paid:0n,expenses:0n,cashResult:0n});
+    }
+    for(const payment of payments){
+      if(payment.kind!=='income')continue;
+      const account=entry(payment.currency);
+      if(account)account.paid+=cents(payment.paid??payment.paidAmount??payment.amount);
+    }
+    for(const expense of expenses){const account=entry(expense.currency);
+      if(account)account.expenses+=cents(expense.amount);
+    }
+    for(const account of Object.values(totals))account.cashResult=account.paid-account.expenses;
+    return totals;
+  }
+  return {summary,projectTotals,projectSummary};
 })();
 if(typeof module!=='undefined')module.exports.F3Expenses=F3Expenses;

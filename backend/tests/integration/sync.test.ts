@@ -585,20 +585,33 @@ test('F3 Android offline expense -> HTTP/PostgreSQL -> second device restart, id
       second=await SyncCoordinator.open(store,transport,()=>false);
       assert.equal(second.entities[fixture.expenseId]?.amount,'210000.00');
       assert.ok(BigInt(second.cursor)>0n);
-      const edit=op('expense',fixture.expenseId,'update',1,{amount:'220000.00'});
+      second=await SyncCoordinator.open(store,transport,()=>true);
+      await second.localWrite(fixture.expenseId,{...second.entities[fixture.expenseId]!,amount:'215000.00'},
+        {...op('expense',fixture.expenseId,'update',1,{amount:'215000.00'}),payload:{amount:'215000.00'}});
+      assert.equal((await second.syncNow()).pendingOperations,0);
+      second=await SyncCoordinator.open(store,transport,()=>false);
+      assert.equal(second.entities[fixture.expenseId]?.amount,'215000.00');
+      const firstStore=new JsonFileSyncStore(join(folder,'device-a.json'));
+      const firstTransport=new HttpSyncTransport(base+'/api/v1',{accessToken:async()=>owner,refresh:async()=>false});
+      let first=await SyncCoordinator.open(firstStore,firstTransport,()=>true);
+      assert.equal((await first.syncNow()).state,'idle');
+      assert.equal(first.entities[fixture.expenseId]?.amount,'215000.00');
+      first=await SyncCoordinator.open(firstStore,firstTransport,()=>false);
+      assert.equal(first.entities[fixture.expenseId]?.amount,'215000.00');
+      const edit=op('expense',fixture.expenseId,'update',2,{amount:'220000.00'});
       assert.equal((await push([edit],owner)).results[0]?.status,'applied');
-      const stale=await push([op('expense',fixture.expenseId,'update',1,{amount:'230000.00'})],secondAccess);
+      const stale=await push([op('expense',fixture.expenseId,'update',2,{amount:'230000.00'})],secondAccess);
       assert.equal(stale.results[0]?.status,'conflict');
       assert.equal((await pool.query<{amount:string}>('SELECT amount FROM expenses WHERE id=$1',
         [fixture.expenseId])).rows[0]?.amount,'220000.00');
-      assert.equal((await push([op('expense',fixture.expenseId,'delete',1,{})],owner)).results[0]?.status,'conflict');
-      assert.equal((await push([op('expense',fixture.expenseId,'delete',2,{})],owner)).results[0]?.status,'applied');
-      assert.equal((await push([op('expense',fixture.expenseId,'update',2,{amount:'240000.00'})],secondAccess)).results[0]?.status,'conflict');
+      assert.equal((await push([op('expense',fixture.expenseId,'delete',2,{})],owner)).results[0]?.status,'conflict');
+      assert.equal((await push([op('expense',fixture.expenseId,'delete',3,{})],owner)).results[0]?.status,'applied');
+      assert.equal((await push([op('expense',fixture.expenseId,'update',3,{amount:'240000.00'})],secondAccess)).results[0]?.status,'conflict');
       second=await SyncCoordinator.open(store,transport,()=>true);
       assert.equal((await second.syncNow()).state,'idle');
       assert.ok(second.entities[fixture.expenseId]?.deletedAt);
       assert.equal((await pool.query('SELECT id FROM audit_logs WHERE entity_type=$1 AND entity_id=$2',
-        ['expense',fixture.expenseId])).rowCount,3);
+        ['expense',fixture.expenseId])).rowCount,4);
     }finally{await rm(folder,{recursive:true,force:true});}
     const foreignAccess=await login(orgB,`${adminB}@test.example`,randomUUID());
     const alien=await push([op('expense',fixture.expenseId,'create',0,

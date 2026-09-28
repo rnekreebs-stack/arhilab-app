@@ -13,6 +13,10 @@ assert.equal(summary.cashResult,19000000n);
 assert.equal(summary.forecastGrossProfit,79000000n);
 assert.equal(summary.forecastMargin,7900n);
 assert.deepEqual(F3.projectTotals(expenses),{EUR:21100000n,USD:2000n});
+assert.deepEqual(F3.projectSummary(income,expenses),{
+  EUR:{paid:40000000n,expenses:21100000n,cashResult:18900000n},
+  USD:{paid:0n,expenses:2000n,cashResult:-2000n}
+});
 assert.equal(F3.summary(estimate,income,[...expenses,{estimateId:estimate.id,currency:'USD',amount:'1'}],
   '1000000.00').currencyMismatch,true);
 summary=F3.summary(estimate,income,expenses,'0');assert.equal(summary.forecastMargin,null);

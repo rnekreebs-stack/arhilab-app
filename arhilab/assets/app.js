@@ -1,5 +1,6 @@
 'use strict';
 let S=null,C={works:[],materials:[]},page='home',pid='',tab='estimate',selectedEstimateId='';const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=n=>Number(n||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₽',roles={admin:'Администратор',manager:'Менеджер',worker:'Рабочий'},calc=Arhilab.calc;
+let f3CategoryFilter='',f3EstimateFilter='';
 const markup=p=>[8,10,12].includes(Number(p?.materialMarkup))?Number(p.materialMarkup):8,markupPrice=(cost,p)=>Math.round(Number(cost)*(100+markup(p)))/100;
 function api(action,a={}){let r=JSON.parse(Native.call(action,JSON.stringify(a)));if(!r.ok)throw Error(r.error);if(r.state)S=r.state;return r;}
 function formData(f){let x={};new FormData(f).forEach((v,k)=>x[k]=v);f.querySelectorAll('[type=number]').forEach(e=>{x[e.name]=Number(e.value);if(!Number.isFinite(x[e.name]))throw Error('Введите корректное число')});f.querySelectorAll('[type=checkbox]').forEach(e=>x[e.name]=e.checked);return x;}
@@ -79,21 +80,34 @@ function f2ResolveForm(id,estimateId){let x=current().payments.find(row=>row.id=
 function f2PaymentDelete(id){if(confirm('Удалить финансовую запись?'))action('f2PaymentDelete',{project:pid,id})}
 function f3Expenses(p){
  if(S.user.role!=='admin'){$('detail').textContent='Недостаточно прав';return}
- const expenses=p.expenses||[],estimates=p.estimates||[],totals=F3Expenses.projectTotals(expenses);
- let e=estimates.find(row=>row.id===(selectedEstimateId||p.legacyEstimateId))||null,summary=null;
- if(e){try{let total=calc(e.legacy?p:e).total;summary=F3Expenses.summary(e,p.payments||[],expenses,total)}
+ const expenses=p.expenses||[],estimates=p.estimates||[],payments=p.payments||[];
+ const categories=[['materials','Материалы'],['labor','Работы исполнителей'],['subcontractor','Подрядчик'],['delivery','Доставка'],['equipment','Оборудование'],['other','Прочее']];
+ const categoryName=Object.fromEntries(categories),projectTotals=F3Expenses.projectSummary(payments,expenses);
+ let e=estimates.find(row=>row.id===(selectedEstimateId||p.legacyEstimateId))||null,summary=null,receipts=null,estimateTotal=null;
+ if(e){try{estimateTotal=calc(e.legacy?p:e).total;
+   receipts=F2Payments.summary(e,payments,estimateTotal);
+   summary=F3Expenses.summary(e,payments,expenses,estimateTotal)}
    catch(error){$('detail').textContent='Не удалось рассчитать экономику: '+error.message;return}}
  const display=(value,currency)=>F2Payments.display(value,currency);
- const lines=Object.entries(totals).sort(([a],[b])=>a.localeCompare(b)).map(([currency,value])=>
-   `<div class="totalrow"><span>Фактические расходы · ${esc(currency)}</span><b>${esc(display(value,currency))}</b></div>`).join('');
+ const lines=Object.entries(projectTotals).sort(([a],[b])=>a.localeCompare(b)).map(([currency,value])=>
+   `<h3>${esc(currency)}</h3><div class="totalrow"><span>Получено от клиентов</span><b>${esc(display(value.paid,currency))}</b></div>
+    <div class="totalrow"><span>Все фактические расходы объекта</span><b>${esc(display(value.expenses,currency))}</b></div>
+    <div class="totalrow"><span>Денежный результат объекта</span><b>${esc(display(value.cashResult,currency))}</b></div>`).join('');
  const financial=summary?(summary.currencyRequired||summary.currencyMismatch?
    '<p class="warning">Для сравнения поступлений и расходов уточните валюту сметы и всех её записей. Валюты не конвертируются.</p>':
-   `<div class="totalrow"><span>Расходы выбранной сметы</span><b>${esc(display(summary.actualExpenses,summary.currency))}</b></div>
+   `<div class="totalrow"><span>Стоимость выбранной сметы</span><b>${esc(display(F2Payments.cents(estimateTotal),summary.currency))}</b></div>
+    <div class="totalrow"><span>Оплачено клиентом</span><b>${esc(display(receipts.paid,summary.currency))}</b></div>
+    <div class="totalrow"><span>${receipts.overpayment>0n?'Переплата':'Осталось получить'}</span><b>${esc(display(receipts.overpayment>0n?receipts.overpayment:receipts.remaining,summary.currency))}</b></div>
+    <div class="totalrow"><span>Расходы выбранной сметы</span><b>${esc(display(summary.actualExpenses,summary.currency))}</b></div>
     <div class="totalrow"><span>Денежный результат: оплачено − расходы</span><b>${esc(display(summary.cashResult,summary.currency))}</b></div>
-    <div class="totalrow"><span>Прогноз валовой прибыли: стоимость сметы − расходы</span><b>${esc(display(summary.forecastGrossProfit,summary.currency))}</b></div>
-    ${summary.forecastMargin===null?'':`<div class="totalrow"><span>Прогноз маржи</span><b>${esc(display(summary.forecastMargin,'%'))}</b></div>`}`):'';
- $('detail').innerHTML=`<div class="card"><h2>Фактические расходы объекта</h2><label>Экономика выбранной сметы</label><select onchange="selectedEstimateId=this.value;projectPage()">${estimates.map(row=>`<option value="${esc(row.id)}" ${e?.id===row.id?'selected':''}>${esc(row.name)}</option>`).join('')}</select><p class="small">Плановые затраты и старые записи платежей сюда автоматически не переносятся. Записи без сметы учитываются только на объекте.</p>${lines||'<p>Расходов пока нет.</p>'}${financial}<button class="gold wide" onclick="f3ExpenseForm()">+ Записать расход</button></div>`+
- expenses.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(x=>`<div class="card"><div class="row"><b>${esc(display(F2Payments.cents(x.amount),x.currency))}</b><span>${esc(x.date)}</span></div><h3>${esc(x.description)}</h3><p>${esc(x.category)} · ${esc(estimates.find(e=>e.id===x.estimateId)?.name||'Объект без сметы')}</p><p>${esc(x.note||'')}</p><div class="row"><button class="secondary" onclick="f3ExpenseForm('${esc(x.id)}')">Исправить</button><button class="danger" onclick="f3ExpenseDelete('${esc(x.id)}')">Удалить</button></div></div>`).join('');
+    <div class="totalrow"><span>Текущий прогноз валовой прибыли</span><b>${esc(display(summary.forecastGrossProfit,summary.currency))}</b></div>
+    ${summary.forecastMargin===null?'':`<div class="totalrow"><span>Текущая прогнозная маржа</span><b>${esc(display(summary.forecastMargin,'%'))}</b></div>`}`):'';
+ const filtered=expenses.filter(x=>(!f3CategoryFilter||x.category===f3CategoryFilter)&&
+   (!f3EstimateFilter||(f3EstimateFilter==='unassigned'?!x.estimateId:x.estimateId===f3EstimateFilter)));
+ $('detail').innerHTML=`<div class="card"><h2>Все расходы объекта</h2><p class="small">Получено и потрачено показано отдельно по каждой валюте; валюты не конвертируются.</p>${lines||'<p>Фактических расходов и поступлений пока нет.</p>'}${payments.some(x=>x.kind==='income'&&!x.currency)?'<p class="warning">Старые платежи без валюты не входят в итоги. Уточните валюту перед синхронизацией.</p>':''}</div>
+ <div class="card"><h2>Экономика сметы</h2><label>Выбранная смета</label><select onchange="selectedEstimateId=this.value;projectPage()">${estimates.map(row=>`<option value="${esc(row.id)}" ${e?.id===row.id?'selected':''}>${esc(row.name)}</option>`).join('')}</select>${financial}<p class="small">Плановые затраты и старые расходные платежи не считаются фактическими расходами автоматически.</p></div>
+ <div class="card"><h2>Журнал расходов</h2>${select('categoryFilter','Категория',[['','Все категории'],...categories],f3CategoryFilter).replace('<select name="categoryFilter"','<select name="categoryFilter" onchange="f3CategoryFilter=this.value;projectPage()"')}${select('estimateFilter','Привязка',[["",'Все сметы'],['unassigned','Без сметы'],...estimates.map(row=>[row.id,row.name])],f3EstimateFilter).replace('<select name="estimateFilter"','<select name="estimateFilter" onchange="f3EstimateFilter=this.value;projectPage()"')}<button class="gold wide" onclick="f3ExpenseForm()">+ Записать расход</button></div>`+
+ filtered.slice().sort((a,b)=>b.date.localeCompare(a.date)||a.id.localeCompare(b.id)).map(x=>`<div class="card"><div class="row"><b>${esc(display(F2Payments.cents(x.amount),x.currency))}</b><span>${esc(x.date)}</span></div><h3>${esc(x.description)}</h3><p>${esc(categoryName[x.category]||x.category)} · ${esc(estimates.find(e=>e.id===x.estimateId)?.name||'Объект без сметы')}</p><p>${esc(x.note||'')}</p><p class="small">${esc(syncLabel(S.syncSummary))}</p><div class="row"><button class="secondary" onclick="f3ExpenseForm('${esc(x.id)}')">Исправить</button><button class="danger" onclick="f3ExpenseDelete('${esc(x.id)}')">Удалить</button></div></div>`).join('');
 }
 function f3ExpenseForm(id=''){
  const p=current(),x=id?(p.expenses||[]).find(row=>row.id===id):null;

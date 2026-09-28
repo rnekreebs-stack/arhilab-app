@@ -69,6 +69,7 @@ jobs:
           node arhilab/tests/f1_legacy_total.cjs /tmp/arhilab-f1-money.json
           node arhilab/tests/f2_payments.cjs
           node arhilab/tests/f3_expenses.cjs
+          node arhilab/tests/f3_expense_ui.cjs
           node arhilab/tests/catalog_price_update.cjs
       - run: npm ci
       - run: npm run lint

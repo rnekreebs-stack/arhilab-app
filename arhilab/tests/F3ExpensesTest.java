@@ -27,6 +27,13 @@ public final class F3ExpensesTest {
         check(summary.getString("cashResult").equals("190000.00")&&summary.getString("forecastGrossProfit").equals("790000.00")
             &&summary.getString("forecastMarginPercent").equals("79.00"),"money formula");
         check(F3Expenses.projectTotals(project.getJSONArray("expenses")).getString("EUR").equals("210000.00"),"project currency totals");
+        JSONObject restored=DataMigration.migrate(new JSONObject().put("schemaVersion",DataMigration.CURRENT)
+            .put("users",new JSONArray()).put("projects",new JSONArray(db.getJSONArray("projects").toString())));
+        JSONObject restoredExpense=restored.getJSONArray("projects").getJSONObject(0).getJSONArray("expenses").getJSONObject(0);
+        check(restoredExpense.getString("id").equals(expenseId)
+            &&F3Expenses.summary(estimateId,"EUR","1000000.00","400000.00",
+                restored.getJSONArray("projects").getJSONObject(0).getJSONArray("expenses"))
+                .getString("cashResult").equals("190000.00"),"new backup/restore changed expense or totals");
         for(String amount:new String[]{"0","-1","NaN","1.234"}){
             try{F3Expenses.validate(new JSONObject(expense.toString()).put("amount",amount));throw new AssertionError("accepted "+amount);}
             catch(IllegalArgumentException expected){}
@@ -39,6 +46,14 @@ public final class F3ExpensesTest {
         JSONArray pending=restarted.getJSONObject("f1Sync").getJSONArray("operations");
         check(pending.length()==4&&pending.getJSONObject(3).getString("idempotencyKey")
             .equals(operations.getJSONObject(3).getString("idempotencyKey")),"restart duplicated expense");
+        JSONObject acknowledged=new JSONObject(restarted.toString());
+        for(int i=0;i<pending.length();i++)F1SyncLedger.acknowledge(acknowledged,
+            new JSONObject().put("operationId",pending.getJSONObject(i).getString("operationId"))
+                .put("status","applied").put("resultingRevision",1));
+        acknowledged=new JSONObject(acknowledged.toString());F1SyncLedger.capture(acknowledged);
+        check(acknowledged.getJSONObject("f1Sync").getJSONArray("operations").length()==0
+            &&acknowledged.getJSONArray("projects").getJSONObject(0).getJSONArray("expenses").length()==1,
+            "response acknowledgement did not clear queue or duplicated expense after restart");
         if(args.length>0){JSONArray submitted=new JSONArray();for(int i=0;i<pending.length();i++){
             JSONObject op=new JSONObject(pending.getJSONObject(i).toString());op.remove("state");submitted.put(op);
         }java.nio.file.Files.write(java.nio.file.Paths.get(args[0]),new JSONObject()
