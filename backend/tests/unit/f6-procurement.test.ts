@@ -13,6 +13,8 @@ test('F6 request and receipt payloads use exact positive decimal quantities and 
  assert.ok(parsePayload('procurementReceipt','create',{projectId:uuid,requestId:uuid,quantity:'0.0001',businessDate:'2026-09-28'}));
  assert.equal(parsePayload('procurementReceipt','create',{projectId:uuid,requestId:uuid,quantity:'-1',businessDate:'2026-09-28'}),null);
  assert.equal(parsePayload('procurementRequest','update',{createdBy:uuid}),null);
+ assert.ok(parsePayload('expense','create',{projectId:uuid,estimateId:null,procurementRequestId:uuid,
+  category:'materials',amount:'100.00',currency:'RUB',businessDate:'2026-09-28',description:'Кабель'}));
 });
 test('F6 operational snapshot contains no monetary fields',()=>{
  const view=visibleSnapshot('worker',{id:uuid,title:'Кабель',requestedQuantity:'2.0000',privateData:{cost:'99'},price:'99'});

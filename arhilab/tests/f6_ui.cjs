@@ -12,8 +12,10 @@ const p={id:'p',name:'Объект',procurementRequests:[{id:'req',title:'Каб
  procurementReceipts:[{id:'rec',requestId:'req',quantity:'1.2500',businessDate:'2026-09-28'}]};
 vm.runInContext('S='+JSON.stringify({user:{id:'admin',role:'admin'},projects:[p],users:[],syncSummary:{state:'pending_changes'}})+';pid="p";C={materials:[]}',context);
 vm.runInContext('f6ProcurementPage(S.projects[0])',context);
-for(const text of ['Снабжение','Кабель','1.25','Осталось: 1.75','Получение','Записать расход отдельно'])
+for(const text of ['Снабжение','Кабель','1.25','Осталось: 1.75','Принять материал','Записать расход отдельно'])
  assert.ok(elements.detail.innerHTML.includes(text),text);
+vm.runInContext("S.projects[0].expenses=[{id:'expense',procurementRequestId:'req',amount:'100.00',currency:'RUB'}];f6ProcurementPage(S.projects[0])",context);
+assert.ok(elements.detail.innerHTML.includes('Расход уже записан'));
 vm.runInContext('S.user={id:"worker",role:"worker"};f6ProcurementPage(S.projects[0])',context);
 assert.ok(!elements.detail.innerHTML.includes('Записать расход'));
 assert.ok(!elements.detail.innerHTML.includes('Удалить'));

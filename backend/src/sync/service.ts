@@ -95,6 +95,8 @@ async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise
     if(op.operationType==='delete') {
       const history=await client.query('SELECT 1 FROM procurement_receipts WHERE organization_id=$1 AND request_id=$2 LIMIT 1',[ctx.organizationId,op.entityId]);
       if(history.rowCount)return {result:rejected(op,'validation','request_has_receipt_history')};
+      const expenses=await client.query('SELECT 1 FROM expenses WHERE organization_id=$1 AND procurement_request_id=$2 LIMIT 1',[ctx.organizationId,op.entityId]);
+      if(expenses.rowCount)return {result:rejected(op,'validation','request_has_expense_history')};
     } else {
       if(current && ['projectId','estimateId','stageId','estimateItemId','catalogSku','createdBy'].some(key=>
         payload[key]!==undefined && payload[key]!==current[spec.fields[key]!]))
@@ -190,6 +192,8 @@ async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise
   if (op.entityType==='expense' && op.operationType!=='delete') {
     if(current && payload.projectId!==undefined && payload.projectId!==current.project_id)
       return {result:rejected(op,'validation','expense_project_immutable')};
+    if(current && payload.procurementRequestId!==undefined && payload.procurementRequestId!==current.procurement_request_id)
+      return {result:rejected(op,'validation','expense_procurement_link_immutable')};
     const ownerId=payload.estimateId===undefined?current?.estimate_id:payload.estimateId;
     if(ownerId) {
       const owner=await client.query<{project_id:string}>(
@@ -197,6 +201,15 @@ async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise
         [ctx.organizationId,ownerId]);
       if(!owner.rows[0] || owner.rows[0].project_id!==(payload.projectId??current?.project_id))
         return {result:rejected(op,'validation','invalid_expense_context')};
+    }
+    const linkedId=payload.procurementRequestId===undefined?current?.procurement_request_id:payload.procurementRequestId;
+    if(linkedId){
+      const request=await client.query<{estimate_id:string|null}>(
+        'SELECT estimate_id FROM procurement_requests WHERE organization_id=$1 AND project_id=$2 AND id=$3 AND deleted_at IS NULL',
+        [ctx.organizationId,payload.projectId??current?.project_id,linkedId]);
+      if(!request.rows[0]||request.rows[0].estimate_id!==(ownerId??null)||
+        (payload.category??current?.category)!=='materials')
+        return {result:rejected(op,'validation','invalid_expense_procurement_context')};
     }
   }
   if (op.entityType==='estimate' && payload.currency!==undefined && current && op.operationType!=='delete') {

@@ -44,6 +44,11 @@ test('F6 Android queued fixture, real HTTP/PostgreSQL, duplicate retry, second d
  assert.equal((await pool.query('SELECT id FROM procurement_requests WHERE id=$1',[fixture.requestId])).rowCount,1);
  assert.equal((await pool.query('SELECT id FROM procurement_receipts WHERE request_id=$1',[fixture.requestId])).rowCount,1);
  assert.equal((await pool.query('SELECT 1 FROM sync_changes WHERE entity_type=$1 AND entity_id=$2',['procurementReceipt',fixture.receiptId])).rowCount,1);
+ const expense=fixture.operations.find(x=>x.entityType==='expense');assert.ok(expense);
+ const expenseId=expense.entityId;
+ assert.equal((await pool.query('SELECT id FROM expenses WHERE id=$1 AND procurement_request_id=$2',[expenseId,fixture.requestId])).rowCount,1);
+ assert.equal((await push([op('expense',randomUUID(),'create',0,
+  {...expense.payload,projectId:randomUUID()})])).results[0]?.status,'rejected');
  const invalid=[
   {projectId:randomUUID(),title:'Wrong',unit:'шт',requestedQuantity:'2',status:'requested'},
   {projectId:fixture.projectId,estimateId:randomUUID(),title:'Wrong',unit:'шт',requestedQuantity:'2',status:'requested'},

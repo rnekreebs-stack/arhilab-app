@@ -225,6 +225,14 @@ q.put("procurementRequests",assignedRequests);p=q;}else if(!r.equals("admin"))st
   expense.put("category",required(a,"category")).put("amount",required(a,"amount"))
     .put("currency",required(a,"currency")).put("date",required(a,"date"))
     .put("description",required(a,"description")).put("note",a.optString("note",""));
+  String procurementId=a.optString("procurementRequestId",expense.optString("procurementRequestId",""));
+  if(!procurementId.isEmpty()){
+   F6Procurement.ensure(p);JSONObject linked=F6Procurement.find(p.getJSONArray("procurementRequests"),procurementId);
+   if(!expense.optString("procurementRequestId",procurementId).equals(procurementId)||
+      !linked.optString("estimateId","").equals(estimateId)||!expense.optString("category").equals("materials"))
+      throw new Exception("Расход не соответствует заявке на материал");
+   expense.put("procurementRequestId",procurementId);
+  }
   if(estimateId.isEmpty())expense.remove("estimateId");else expense.put("estimateId",estimateId);
   F3Expenses.validate(expense);expense.put("updatedAt",java.time.Instant.now().toString());
   if(id.isEmpty())expenses.put(expense);save();result.put("expenseId",expense.getString("id"));break;}

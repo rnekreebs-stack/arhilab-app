@@ -179,6 +179,9 @@ final class F1SyncMerge {
                 if(snapshot.has("updatedAt")&&!snapshot.isNull("updatedAt"))expense.put("updatedAt",snapshot.get("updatedAt"));
                 if (snapshot.has("estimateId") && !snapshot.isNull("estimateId")) expense.put("estimateId",snapshot.getString("estimateId"));
                 else expense.remove("estimateId");
+                if(snapshot.has("procurementRequestId")&&!snapshot.isNull("procurementRequestId"))
+                    expense.put("procurementRequestId",snapshot.getString("procurementRequestId"));
+                else expense.remove("procurementRequestId");
             }
         } else if (type.equals("payment")) {
             JSONObject p = find(projects, snapshot.getString("projectId"));

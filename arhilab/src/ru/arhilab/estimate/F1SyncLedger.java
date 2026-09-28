@@ -196,6 +196,7 @@ final class F1SyncLedger {
                     .put("businessDate",expense.getString("date"))
                     .put("description",expense.getString("description"))
                     .put("note",expense.optString("note",""));
+                if(expense.has("procurementRequestId"))payload.put("procurementRequestId",expense.getString("procurementRequestId"));
                 row(rows,"expense",expense.getString("id"),payload);
             }
             if (payments != null) for (int i = 0; i < payments.length(); i++) {
@@ -297,7 +298,7 @@ final class F1SyncLedger {
         ArrayList<String> changed = new ArrayList<>();
         for (Iterator<String> keys = rows.keys(); keys.hasNext();) changed.add(keys.next());
         // Store in foreign-key dependency order even though org.json does not promise insertion order.
-        for (String type : new String[]{"project", "estimate", "stage", "estimateItem", "progressEntry", "payment", "expense", "task", "procurementRequest", "procurementReceipt"}) {
+        for (String type : new String[]{"project", "estimate", "stage", "estimateItem", "progressEntry", "payment", "task", "procurementRequest", "procurementReceipt", "expense"}) {
             for (String key : changed) {
                 if (!key.startsWith(type + ":")) continue;
                 JSONObject payload = rows.getJSONObject(key);
@@ -311,7 +312,7 @@ final class F1SyncLedger {
             String key = keys.next();
             if (!rows.has(key)) removed.add(key);
         }
-        for (String type : new String[]{"procurementReceipt", "procurementRequest", "task", "expense", "payment", "progressEntry", "estimateItem", "stage", "estimate", "project"}) {
+        for (String type : new String[]{"expense", "procurementReceipt", "procurementRequest", "task", "payment", "progressEntry", "estimateItem", "stage", "estimate", "project"}) {
             for (String key : removed) {
                 if (!key.startsWith(type + ":")) continue;
                 enqueue(operations, revisions, key, "delete", new JSONObject());

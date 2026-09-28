@@ -14,7 +14,7 @@ public final class F6ProcurementTest {
     public static void main(String[] args)throws Exception {
         String id=UUID.randomUUID().toString();JSONObject project=new JSONObject().put("id",id).put("name","Объект")
             .put("lines",new JSONArray()).put("materials",new JSONArray()).put("tasks",new JSONArray())
-            .put("payments",new JSONArray());LocalEstimates.ensure(project);
+            .put("payments",new JSONArray()).put("expenses",new JSONArray());LocalEstimates.ensure(project);
         JSONObject database=DataMigration.migrate(new JSONObject().put("schemaVersion",7)
             .put("users",new JSONArray()).put("projects",new JSONArray().put(project)));
         project=database.getJSONArray("projects").getJSONObject(0);
@@ -30,11 +30,16 @@ public final class F6ProcurementTest {
         try{F6Procurement.saveReceipt(project,new JSONObject().put("requestId",r.getString("id"))
             .put("quantity","1.7501").put("businessDate","2026-09-28"));throw new AssertionError("overreceipt");}
         catch(IllegalArgumentException expected){}
+        JSONObject expense=new JSONObject().put("id",UUID.randomUUID().toString()).put("procurementRequestId",r.getString("id"))
+            .put("category","materials").put("amount","100.00").put("currency","RUB")
+            .put("date","2026-09-28").put("description","Кабель").put("note","");
+        F3Expenses.validate(expense);project.getJSONArray("expenses").put(expense);
         F1SyncLedger.capture(database);JSONArray jobs=database.getJSONObject("f1Sync").getJSONArray("operations");
-        check(jobs.length()==4,"project estimate request receipt queue");
+        check(jobs.length()==5,"project estimate request receipt linked expense queue");
         check(jobs.getJSONObject(2).getString("entityType").equals("procurementRequest"),"request before receipt");
+        check(jobs.getJSONObject(4).getString("entityType").equals("expense"),"request before linked expense");
         JSONObject restarted=new JSONObject(database.toString());F1SyncLedger.capture(restarted);
-        check(restarted.getJSONObject("f1Sync").getJSONArray("operations").length()==4,"restart retained queue");
+        check(restarted.getJSONObject("f1Sync").getJSONArray("operations").length()==5,"restart retained queue");
         check(restarted.getJSONObject("f1Sync").getJSONArray("operations").getJSONObject(3).getString("operationId")
             .equals(jobs.getJSONObject(3).getString("operationId")),"same idempotency after restart");
         if(args.length>0){JSONArray ops=new JSONArray();for(int i=0;i<jobs.length();i++){
@@ -52,9 +57,11 @@ public final class F6ProcurementTest {
         check(second.getJSONArray("projects").getJSONObject(0).getJSONArray("procurementReceipts").length()==1,"second device");
         check(DataMigration.migrate(new JSONObject(second.toString())).getJSONArray("projects").getJSONObject(0)
             .getJSONArray("procurementReceipts").length()==1,"backup restart");
+        check(second.getJSONArray("projects").getJSONObject(0).getJSONArray("expenses").getJSONObject(0)
+            .getString("procurementRequestId").equals(r.getString("id")),"second-device F3 link");
         F6Procurement.delete(project,"receipt",receipt.getString("id"));
         F1SyncLedger.capture(database);
-        check(database.getJSONObject("f1Sync").getJSONArray("operations").getJSONObject(4)
+        check(database.getJSONObject("f1Sync").getJSONArray("operations").getJSONObject(5)
             .getString("operationType").equals("delete"),"receipt tombstone queue");
         System.out.println("F6 local migration, exact quantity, offline queue, restart, second-device merge passed");
     }
