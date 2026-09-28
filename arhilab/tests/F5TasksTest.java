@@ -17,6 +17,7 @@ public final class F5TasksTest {
         JSONObject project=new JSONObject().put("id",projectId).put("name","Объект")
             .put("lines",new JSONArray()).put("materials",new JSONArray()).put("payments",new JSONArray())
             .put("tasks",new JSONArray().put(legacy));
+        LocalEstimates.ensure(project); // A valid v6 database already contains its original estimate.
         JSONObject db=DataMigration.migrate(new JSONObject().put("schemaVersion",6)
             .put("users",new JSONArray()).put("projects",new JSONArray().put(project)));
         project=db.getJSONArray("projects").getJSONObject(0);
