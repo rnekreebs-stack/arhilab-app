@@ -83,5 +83,5 @@ check_stage 1
 npm run migrate:down
 check_stage 0
 npm run migrate:up
-check_stage 16
+check_stage 17
 node --import tsx scripts/verify-schema.ts
