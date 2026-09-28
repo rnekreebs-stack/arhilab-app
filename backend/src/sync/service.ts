@@ -23,7 +23,7 @@ const rejected=(op:SyncOperation,errorClass:NonNullable<SyncResult['errorClass']
 const conflict=(op:SyncOperation,currentRevision:number):SyncResult=>({operationId:op.operationId,status:'conflict',errorClass:'conflict',code:'stale_revision',currentRevision});
 
 async function referencesValid(client:PoolClient,org:string,payload:Record<string,unknown>) {
-  for (const [key,table] of [['projectId','projects'],['estimateId','estimates'],['assigneeId','users']] as const) {
+  for (const [key,table] of [['projectId','projects'],['estimateId','estimates'],['estimateItemId','estimate_items'],['stageId','stages'],['assigneeId','users']] as const) {
     const id=payload[key]; if (id === undefined || id === null) continue;
     const where=table==='users'?' AND active':' AND deleted_at IS NULL';
     const check=await client.query(`SELECT id FROM ${table} WHERE organization_id=$1 AND id=$2${where}`,[org,id]);
@@ -51,6 +51,56 @@ async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise
   const found=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE id=$1 FOR NO KEY UPDATE`,[op.entityId]);
   const current=found.rows[0];
   if (current && current.organization_id !== ctx.organizationId) return {result:rejected(op,'authorization','entity_not_available')};
+  if(op.entityType==='stage' && op.operationType!=='delete') {
+    if(current && ['projectId','estimateId'].some(key=>payload[key]!==undefined&&payload[key]!==current[spec.fields[key]!]))
+      return {result:rejected(op,'validation','stage_owner_immutable')};
+    const projectId=payload.projectId??current?.project_id, estimateId=payload.estimateId??current?.estimate_id;
+    if(estimateId) {
+      const owner=await client.query('SELECT 1 FROM estimates WHERE organization_id=$1 AND id=$2 AND project_id=$3 AND deleted_at IS NULL',[ctx.organizationId,estimateId,projectId]);
+      if(!owner.rowCount)return {result:rejected(op,'validation','invalid_stage_context')};
+    }
+  }
+  if(op.entityType==='stage' && op.operationType==='delete') {
+    const assigned=await client.query('SELECT 1 FROM estimate_items WHERE organization_id=$1 AND stage_id=$2 AND deleted_at IS NULL LIMIT 1',[ctx.organizationId,op.entityId]);
+    if(assigned.rowCount)return {result:rejected(op,'validation','stage_has_items')};
+  }
+  if(op.entityType==='estimateItem') {
+    if(current && payload.estimateId!==undefined && payload.estimateId!==current.estimate_id)
+      return {result:rejected(op,'validation','item_owner_immutable')};
+    if(op.operationType==='delete') {
+      const history=await client.query('SELECT 1 FROM progress_entries WHERE organization_id=$1 AND estimate_item_id=$2 LIMIT 1',[ctx.organizationId,op.entityId]);
+      if(history.rowCount)return {result:rejected(op,'validation','item_has_progress_history')};
+    }
+    if(payload.stageId) {
+      if((payload.kind??current?.item_kind)!=='work')return {result:rejected(op,'validation','stage_requires_work')};
+      const owner=await client.query('SELECT 1 FROM stages WHERE organization_id=$1 AND id=$2 AND estimate_id=$3 AND deleted_at IS NULL',
+        [ctx.organizationId,payload.stageId,payload.estimateId??current?.estimate_id]);
+      if(!owner.rowCount)return {result:rejected(op,'validation','invalid_stage_context')};
+    }
+  }
+  if(op.entityType==='progressEntry' && op.operationType!=='delete') {
+    if(current && ['projectId','estimateId','estimateItemId','historicalStageId','createdBy'].some(key=>
+      payload[key]!==undefined&&payload[key]!==current[spec.fields[key]!]))
+      return {result:rejected(op,'validation','progress_owner_immutable')};
+    const projectId=payload.projectId??current?.project_id, estimateId=payload.estimateId??current?.estimate_id;
+    const itemId=payload.estimateItemId??current?.estimate_item_id;
+    const item=await client.query<{quantity:string;stage_id:string|null;item_kind:string}>(`SELECT i.quantity,i.stage_id,i.item_kind FROM estimate_items i
+      JOIN estimates e ON e.id=i.estimate_id AND e.organization_id=i.organization_id
+      WHERE i.organization_id=$1 AND i.id=$2 AND i.estimate_id=$3 AND e.project_id=$4
+        AND i.deleted_at IS NULL AND e.deleted_at IS NULL`,[ctx.organizationId,itemId,estimateId,projectId]);
+    if(!item.rows[0])return {result:rejected(op,'validation','invalid_progress_context')};
+    if(item.rows[0].item_kind!=='work')return {result:rejected(op,'validation','progress_requires_work')};
+    const sum=await client.query<{completed:string}>(`SELECT COALESCE(sum(quantity),0)::text AS completed FROM progress_entries
+      WHERE organization_id=$1 AND estimate_item_id=$2 AND deleted_at IS NULL AND id<>$3`,[ctx.organizationId,itemId,op.entityId]);
+    const units=(value:unknown)=>{const [whole='0',fraction='']=String(value).split('.');return BigInt(whole)*10000n+BigInt((fraction+'0000').slice(0,4));};
+    if(units(payload.quantity??current?.quantity)+units(sum.rows[0]?.completed??'0')>units(item.rows[0].quantity)
+      && (op.operationType==='create'||payload.quantity!==undefined && units(payload.quantity)>units(current?.quantity)))
+      return {result:rejected(op,'validation','progress_exceeds_plan')};
+    if(op.operationType==='create') {
+      payload.createdBy=ctx.userId;
+      payload.historicalStageId=item.rows[0].stage_id;
+    }
+  }
   if (op.entityType==='payment' && op.operationType!=='delete') {
     const amount=payload.amount??current?.amount;
     const paid=payload.paidAmount??current?.paid_amount;
@@ -125,7 +175,8 @@ export async function applyOperation(ctx:Identity,op:SyncOperation):Promise<Sync
     const reusedId=await client.query('SELECT id FROM sync_operations WHERE id=$1',[op.operationId]);
     if (reusedId.rowCount) return rejected(op,'conflict','operation_id_reused');
     const {result,state}=await mutation(client,ctx,op);
-    if((op.entityType==='payment'||op.entityType==='expense') && result.status==='applied') await client.query(
+    if(result.status==='applied' && (['payment','expense','stage','progressEntry'].includes(op.entityType) ||
+      op.entityType==='estimateItem' && typeof op.payload==='object' && op.payload!==null && 'stageId' in op.payload)) await client.query(
       'INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
       [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`${op.entityType}.${op.operationType}`,op.entityType,op.entityId]);
     await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result,conflict_metadata)
@@ -158,7 +209,7 @@ export async function applyResolution(client:PoolClient,ctx:Identity,entityType:
   const {result,state}=await mutation(client,ctx,op);
   if(result.status==='rejected' && result.code==='invalid_reference') throw new HttpError(400,'Invalid reference','invalid_reference');
   if(result.status!=='applied'||!state) throw new HttpError(409,'Resolution stale','resolution_stale');
-  if(entityType==='payment'||entityType==='expense') await client.query(
+  if(['payment','expense','stage','progressEntry'].includes(entityType) || entityType==='estimateItem' && 'stageId' in payload) await client.query(
     'INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
     [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`${entityType}.${kind}`,entityType,entityId]);
   await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result)

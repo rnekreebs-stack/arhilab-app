@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../src/database/pool.js';
-const tables = ['organizations','users','devices','projects','estimates','estimate_items','materials','stages','payments','expenses','tasks','photos','documents','sync_operations','audit_logs'];
+const tables = ['organizations','users','devices','projects','estimates','estimate_items','materials','stages','payments','expenses','progress_entries','tasks','photos','documents','sync_operations','audit_logs'];
 tables.push('sessions','refresh_credentials','sync_changes');
 try {
   const result = await pool.query<{ table_name: string }>("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name = ANY($1)", [tables]);
@@ -25,6 +25,8 @@ try {
   if(payment.rowCount!==5) throw new Error('F2 payment fields missing');
   const expense=await pool.query("SELECT 1 FROM pg_constraint WHERE conrelid='expenses'::regclass AND contype='f'");
   if(expense.rowCount!==2) throw new Error('F3 project and estimate ownership constraints missing');
+  const execution=await pool.query("SELECT conname FROM pg_constraint WHERE conrelid='progress_entries'::regclass AND contype='f'");
+  if(execution.rowCount!==4) throw new Error('F4 journal must bind organization, project, estimate, item, stage and author');
   const currency=await pool.query<{is_nullable:string}>("SELECT is_nullable FROM information_schema.columns WHERE table_name='estimates' AND column_name='currency'");
   if(currency.rows[0]?.is_nullable!=='YES') throw new Error('Legacy estimate currency must be unresolved');
   const a = randomUUID(), b = randomUUID(), project = randomUUID();
