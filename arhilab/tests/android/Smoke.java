@@ -33,7 +33,8 @@ public class Smoke extends Instrumentation {
  byte[] read(String name)throws Exception{try(FileInputStream in=new FileInputStream(fixture(name));ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toByteArray();}}
  JSONObject snapshot()throws Exception{
   JSONArray result=new JSONArray(),projects=database().getJSONArray("projects");
-  for(int i=0;i<projects.length();i++){JSONObject p=projects.getJSONObject(i),lines=p.getJSONArray("lines"),items=new JSONArray(),materials=new JSONArray(),tasks=new JSONArray();
+  for(int i=0;i<projects.length();i++){JSONObject p=projects.getJSONObject(i);
+   JSONArray lines=p.getJSONArray("lines"),items=new JSONArray(),materials=new JSONArray(),tasks=new JSONArray();
    for(int j=0;j<lines.length();j++){JSONObject l=lines.getJSONObject(j);items.put(new JSONObject().put("id",l.getString("id"))
     .put("name",l.getString("name")).put("qty",l.get("qty")).put("unit",l.getString("unit"))
     .put("price",l.get("price")).put("materialTier",l.optString("materialTier"))
