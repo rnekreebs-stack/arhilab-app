@@ -1,8 +1,8 @@
-name: Arhilab Смета 0.6.2 Android
+name: Arhilab Смета 0.7.0 F6 Android
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main, master, arhilab-0.7.0-architecture]
 permissions:
   contents: read
 concurrency:
@@ -60,16 +60,20 @@ jobs:
           bash arhilab/build.sh debug
           grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' output/*debug.apk.signature.txt
           grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' output/*debug.apk.signature.txt
-      - name: Build 0.6.1 upgrade fixture with the same permanent Debug key
+          grep -qi '490b0b6e11a9090b63c56430c243e362a6fa7fcc165dfee38372767ac430728f' output/*debug.apk.signature.txt
+      - name: Build 0.6.2 upgrade baseline with the same permanent Debug key
         env:
           SIGNING_STORE_PASSWORD: android
+          SIGNING_KEY_PASSWORD: android
+          SIGNING_KEY_ALIAS: androiddebugkey
         run: |
-          git worktree add --detach "$RUNNER_TEMP/arhilab-baseline" cadcdeca74300cc9ebe9bafcc0a4f789c2806997
-          mkdir -p "$RUNNER_TEMP/arhilab-baseline/arhilab/build"
-          cp "$RUNNER_TEMP/arhilab-debug.keystore" "$RUNNER_TEMP/arhilab-baseline/arhilab/build/debug.keystore"
+          git worktree add --detach "$RUNNER_TEMP/arhilab-baseline" b0ca0374545bce7541f9c1dd5c25bee18a119f70
+          export SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore"
           bash "$RUNNER_TEMP/arhilab-baseline/arhilab/build.sh" debug
-          cp "$RUNNER_TEMP/arhilab-baseline/output/Arhilab-Смета-0.6.1-debug.apk" output/upgrade-baseline-0.6.1.apk
+          cp "$RUNNER_TEMP/arhilab-baseline/output/Arhilab-Смета-0.6.2-debug.apk" output/upgrade-baseline-0.6.2-debug.apk
+          diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*debug.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-baseline/output/Arhilab-Смета-0.6.2-debug.apk.signature.txt")
       - name: Build optional signed Release APK
+        id: release
         env:
           KEYSTORE_BASE64: ${{ secrets.ARHILAB_KEYSTORE_BASE64 }}
           SIGNING_STORE_PASSWORD: ${{ secrets.ARHILAB_KEYSTORE_PASSWORD }}
@@ -84,11 +88,20 @@ jobs:
           : "${KEYSTORE_BASE64:?Incomplete release Secrets}"
           : "${SIGNING_STORE_PASSWORD:?Incomplete release Secrets}"
           export SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-release.p12"
-          trap 'rm -f "$SIGNING_KEYSTORE"' EXIT
           umask 077
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$SIGNING_KEYSTORE"
           bash arhilab/build.sh release
-      - name: Build instrumentation test APK
+          bash "$RUNNER_TEMP/arhilab-baseline/arhilab/build.sh" release
+          cp "$RUNNER_TEMP/arhilab-baseline/output/Arhilab-Смета-0.6.2-release.apk" output/upgrade-baseline-0.6.2-release.apk
+          diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*release.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-baseline/output/Arhilab-Смета-0.6.2-release.apk.signature.txt")
+          bash arhilab/tests/android/build.sh
+          cp arhilab/build/smoke/smoke.apk arhilab/build/smoke/release-smoke.apk
+          echo 'available=true' >> "$GITHUB_OUTPUT"
+      - name: Build Debug instrumentation test APK
+        env:
+          SIGNING_STORE_PASSWORD: android
+          SIGNING_KEY_PASSWORD: android
+          SIGNING_KEY_ALIAS: androiddebugkey
         run: SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore" bash arhilab/tests/android/build.sh
       - name: Enable KVM
         run: |
@@ -104,6 +117,9 @@ jobs:
           profile: pixel_2
           disable-animations: true
           script: bash arhilab/tests/android/run.sh
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/arhilab-debug.keystore" "$RUNNER_TEMP/arhilab-release.p12"
       - name: Record build provenance
         if: always()
         run: |
@@ -113,8 +129,16 @@ jobs:
         if: always() && steps.debug.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: Arhilab-Смета-0.6.2-${{ github.run_number }}
-          path: output/Arhilab-Смета-0.6.2-*.apk
+          name: arhilab-0.7.0-f6-debug-apk
+          path: output/Arhilab-Смета-0.7.0-F6-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Downloadable signed Release APK
+        if: steps.release.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: arhilab-0.7.0-f6-release-apk
+          path: output/Arhilab-Смета-0.7.0-F6-release.apk
           if-no-files-found: error
           retention-days: 30
       - name: Verification reports
