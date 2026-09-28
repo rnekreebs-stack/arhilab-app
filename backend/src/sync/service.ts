@@ -68,6 +68,18 @@ async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise
         return {result:rejected(op,'validation','invalid_payment_context')};
     }
   }
+  if (op.entityType==='expense' && op.operationType!=='delete') {
+    if(current && payload.projectId!==undefined && payload.projectId!==current.project_id)
+      return {result:rejected(op,'validation','expense_project_immutable')};
+    const ownerId=payload.estimateId===undefined?current?.estimate_id:payload.estimateId;
+    if(ownerId) {
+      const owner=await client.query<{project_id:string}>(
+        'SELECT project_id FROM estimates WHERE organization_id=$1 AND id=$2 AND deleted_at IS NULL',
+        [ctx.organizationId,ownerId]);
+      if(!owner.rows[0] || owner.rows[0].project_id!==(payload.projectId??current?.project_id))
+        return {result:rejected(op,'validation','invalid_expense_context')};
+    }
+  }
   if (op.entityType==='estimate' && payload.currency!==undefined && current && op.operationType!=='delete') {
     const linked=await client.query('SELECT 1 FROM payments WHERE organization_id=$1 AND estimate_id=$2 AND deleted_at IS NULL AND currency IS DISTINCT FROM $3 LIMIT 1',
       [ctx.organizationId,op.entityId,payload.currency]);
@@ -113,9 +125,9 @@ export async function applyOperation(ctx:Identity,op:SyncOperation):Promise<Sync
     const reusedId=await client.query('SELECT id FROM sync_operations WHERE id=$1',[op.operationId]);
     if (reusedId.rowCount) return rejected(op,'conflict','operation_id_reused');
     const {result,state}=await mutation(client,ctx,op);
-    if(op.entityType==='payment' && result.status==='applied') await client.query(
+    if((op.entityType==='payment'||op.entityType==='expense') && result.status==='applied') await client.query(
       'INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
-      [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`payment.${op.operationType}`,'payment',op.entityId]);
+      [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`${op.entityType}.${op.operationType}`,op.entityType,op.entityId]);
     await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result,conflict_metadata)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,1,$11,$12,$13,$14)`,[
       op.operationId,ctx.organizationId,ctx.deviceId,op.entityType,op.entityId,op.operationType,op.baseRevision,
@@ -146,9 +158,9 @@ export async function applyResolution(client:PoolClient,ctx:Identity,entityType:
   const {result,state}=await mutation(client,ctx,op);
   if(result.status==='rejected' && result.code==='invalid_reference') throw new HttpError(400,'Invalid reference','invalid_reference');
   if(result.status!=='applied'||!state) throw new HttpError(409,'Resolution stale','resolution_stale');
-  if(entityType==='payment') await client.query(
+  if(entityType==='payment'||entityType==='expense') await client.query(
     'INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
-    [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`payment.${kind}`,'payment',entityId]);
+    [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`${entityType}.${kind}`,entityType,entityId]);
   await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,'applied',$9,1,$10,$11,$12)`,[op.operationId,ctx.organizationId,ctx.deviceId,entityType,entityId,kind,baseRevision,result.resultingRevision,op.idempotencyKey,op.occurredAt,requestHash(op),JSON.stringify(result)]);
   const cursor=await client.query<{sync_cursor:string}>('UPDATE organizations SET sync_cursor=sync_cursor+1 WHERE id=$1 RETURNING sync_cursor',[ctx.organizationId]);
@@ -164,6 +176,6 @@ export async function pullChanges(ctx:Identity,cursor:string,limit:number) {
   const changes=await pool.query<{sequence:string;entity_type:string;entity_id:string;revision:string;operation_type:string;snapshot:Record<string,unknown>;source_device_id:string;sync_operation_id:string;changed_at:Date}>(`SELECT sequence,entity_type,entity_id,revision,operation_type,snapshot,source_device_id,sync_operation_id,changed_at FROM sync_changes WHERE organization_id=$1 AND sequence>$2 ORDER BY sequence LIMIT $3`,[ctx.organizationId,cursor,limit+1]);
   const hasMore=changes.rows.length>limit;
   const page=changes.rows.slice(0,limit);
-  return {changes:page.filter(row=>ctx.role==='admin'||row.entity_type!=='payment')
+  return {changes:page.filter(row=>ctx.role==='admin'||!['payment','expense'].includes(row.entity_type))
     .map(row=>({sequence:row.sequence,entityType:row.entity_type,entityId:row.entity_id,revision:Number(row.revision),operationType:row.operation_type,snapshot:visibleSnapshot(ctx.role,row.snapshot),sourceDeviceId:row.source_device_id,operationId:row.sync_operation_id,changedAt:row.changed_at.toISOString()})),nextCursor:page.at(-1)?.sequence ?? cursor,hasMore};
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../src/database/pool.js';
-const tables = ['organizations','users','devices','projects','estimates','estimate_items','materials','stages','payments','tasks','photos','documents','sync_operations','audit_logs'];
+const tables = ['organizations','users','devices','projects','estimates','estimate_items','materials','stages','payments','expenses','tasks','photos','documents','sync_operations','audit_logs'];
 tables.push('sessions','refresh_credentials','sync_changes');
 try {
   const result = await pool.query<{ table_name: string }>("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name = ANY($1)", [tables]);
@@ -23,6 +23,8 @@ try {
   if(restricted.rowCount!==2) throw new Error('Admin-only estimate fields missing');
   const payment=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name='payments' AND column_name IN ('estimate_id','payment_kind','paid_amount','business_date','comment')");
   if(payment.rowCount!==5) throw new Error('F2 payment fields missing');
+  const expense=await pool.query("SELECT 1 FROM pg_constraint WHERE conrelid='expenses'::regclass AND contype='f'");
+  if(expense.rowCount!==2) throw new Error('F3 project and estimate ownership constraints missing');
   const currency=await pool.query<{is_nullable:string}>("SELECT is_nullable FROM information_schema.columns WHERE table_name='estimates' AND column_name='currency'");
   if(currency.rows[0]?.is_nullable!=='YES') throw new Error('Legacy estimate currency must be unresolved');
   const a = randomUUID(), b = randomUUID(), project = randomUUID();

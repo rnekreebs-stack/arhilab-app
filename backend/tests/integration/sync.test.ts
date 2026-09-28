@@ -14,6 +14,10 @@ import { HttpSyncTransport } from '../../src/sync/client/http-transport.js';
 const paymentMath=createRequire(import.meta.url)('../../../arhilab/assets/f2-payments.js') as {
   summary:(estimate:Record<string,unknown>,payments:Array<Record<string,unknown>>,total:string)=>{paid:bigint;remaining:bigint;overpayment:bigint};
 };
+const expenseMath=(createRequire(import.meta.url)('../../../arhilab/assets/f2-payments.js') as {F3Expenses: {
+  summary:(estimate:Record<string,unknown>,payments:Array<Record<string,unknown>>,
+    expenses:Array<Record<string,unknown>>,total:string)=>{actualExpenses:bigint;cashResult:bigint;forecastGrossProfit:bigint;forecastMargin:bigint|null};
+}}).F3Expenses;
 let server:Server,base:string;
 const orgA=randomUUID(),orgB=randomUUID(),adminA=randomUUID(),adminB=randomUUID(),manager=randomUUID(),worker=randomUUID();
 const deviceA=randomUUID(),deviceA2=randomUUID(),deviceB=randomUUID();
@@ -527,4 +531,95 @@ test('F2 ownership, currency, tenant collision, stale delete/update and payment 
   for(let i=0;i<issued.length;i+=50) assert.ok((await push(issued.slice(i,i+50),owner)).results.every(r=>r.status==='applied'));
   const snapshot=await request('/api/v1/sync/snapshot','GET',undefined,owner);
   assert.equal((snapshot.body.entities as Array<{entityType:string;entityId:string}>).filter(x=>x.entityType==='payment'&&issued.some(p=>p.entityId===x.entityId)).length,105);
+});
+
+test('F3 Android offline expense -> HTTP/PostgreSQL -> second device restart, idempotency, conflict and privacy',
+  {skip:!process.env.F3_CLIENT_FIXTURE_PATH},async()=>{
+    const fixture=JSON.parse(await readFile(process.env.F3_CLIENT_FIXTURE_PATH!,'utf8')) as
+      {operations:Operation[];expenseId:string;estimateId:string;projectId:string;paymentId:string};
+    assert.deepEqual(fixture.operations.map(x=>x.entityType),['project','estimate','payment','expense']);
+    const owner=await login(orgA,adminA+'@test.example',randomUUID());
+    const created=await push(fixture.operations,owner);
+    assert.deepEqual(created.results.map(x=>x.status),Array(4).fill('applied'));
+    const retry=await push(fixture.operations,owner); // Applied server-side, reply lost, client restarts and resends same IDs.
+    assert.deepEqual(retry.results.map(x=>x.status),Array(4).fill('duplicate'));
+    assert.equal((await pool.query('SELECT id FROM expenses WHERE id=$1',[fixture.expenseId])).rowCount,1);
+    assert.equal((await pool.query('SELECT sequence FROM sync_changes WHERE organization_id=$1 AND entity_id=$2',
+      [orgA,fixture.expenseId])).rowCount,1);
+    assert.equal((await pool.query('SELECT id FROM audit_logs WHERE entity_type=$1 AND entity_id=$2',
+      ['expense',fixture.expenseId])).rowCount,1);
+    for(const limited of [accessManager,accessWorker]){
+      assert.equal((await push([op('expense',randomUUID(),'create',0,{projectId:fixture.projectId,
+        category:'other',amount:'1.00',currency:'EUR',businessDate:'2026-09-27',description:'Forbidden'})],limited)).status,403);
+      const snapshot=await request('/api/v1/sync/snapshot','GET',undefined,limited);
+      assert.equal((snapshot.body.entities as Array<{entityId:string}>).some(x=>x.entityId===fixture.expenseId),false);
+      const feed=await request('/api/v1/sync/pull?cursor=0','GET',undefined,limited);
+      assert.equal((feed.body.changes as Array<{entityType:string}>).some(x=>x.entityType==='expense'),false);
+    }
+    const folder=await mkdtemp(join(tmpdir(),'arhilab-f3-device-b-'));
+    try {
+      const secondAccess=await login(orgA,adminA+'@test.example',randomUUID());
+      const store=new JsonFileSyncStore(join(folder,'state.json'));
+      const transport=new HttpSyncTransport(base+'/api/v1',{accessToken:async()=>secondAccess,refresh:async()=>false});
+      let second=await SyncCoordinator.open(store,transport,()=>true);
+      assert.equal((await second.syncNow()).state,'idle');
+      assert.equal(second.entities[fixture.expenseId]?.amount,'210000.00');
+      const totals=expenseMath.summary(second.entities[fixture.estimateId]!,
+        [second.entities[fixture.paymentId]!],[second.entities[fixture.expenseId]!],'1000000.00');
+      assert.equal(totals.cashResult,19000000n);
+      assert.equal(totals.forecastGrossProfit,79000000n);
+      assert.equal(totals.forecastMargin,7900n);
+      second=await SyncCoordinator.open(store,transport,()=>false);
+      assert.equal(second.entities[fixture.expenseId]?.amount,'210000.00');
+      assert.ok(BigInt(second.cursor)>0n);
+      const edit=op('expense',fixture.expenseId,'update',1,{amount:'220000.00'});
+      assert.equal((await push([edit],owner)).results[0]?.status,'applied');
+      const stale=await push([op('expense',fixture.expenseId,'update',1,{amount:'230000.00'})],secondAccess);
+      assert.equal(stale.results[0]?.status,'conflict');
+      assert.equal((await pool.query<{amount:string}>('SELECT amount FROM expenses WHERE id=$1',
+        [fixture.expenseId])).rows[0]?.amount,'220000.00');
+      assert.equal((await push([op('expense',fixture.expenseId,'delete',1,{})],owner)).results[0]?.status,'conflict');
+      assert.equal((await push([op('expense',fixture.expenseId,'delete',2,{})],owner)).results[0]?.status,'applied');
+      assert.equal((await push([op('expense',fixture.expenseId,'update',2,{amount:'240000.00'})],secondAccess)).results[0]?.status,'conflict');
+      second=await SyncCoordinator.open(store,transport,()=>true);
+      assert.equal((await second.syncNow()).state,'idle');
+      assert.ok(second.entities[fixture.expenseId]?.deletedAt);
+      assert.equal((await pool.query('SELECT id FROM audit_logs WHERE entity_type=$1 AND entity_id=$2',
+        ['expense',fixture.expenseId])).rowCount,3);
+    }finally{await rm(folder,{recursive:true,force:true});}
+    const alien=await push([op('expense',fixture.expenseId,'create',0,
+      {projectId:fixture.projectId,category:'other',amount:'1.00',currency:'EUR',businessDate:'2026-09-27',description:'Collision'})],accessB);
+    assert.equal(alien.results[0]?.status,'rejected');
+    assert.equal(((await request('/api/v1/sync/snapshot','GET',undefined,accessB)).body.entities as
+      Array<{entityId:string}>).some(x=>x.entityId===fixture.expenseId),false);
+});
+
+test('F3 expense owner, amount, currency isolation, foreign estimate and concurrent revisions',async()=>{
+  const project=randomUUID(),otherProject=randomUUID(),estimate=randomUUID(),foreignEstimate=randomUUID();
+  const setup=await push([op('project',project,'create',0,{name:'Expense project'}),
+    op('project',otherProject,'create',0,{name:'Different project'}),
+    op('estimate',estimate,'create',0,{projectId:project,name:'Estimate'}),
+    op('estimate',foreignEstimate,'create',0,{projectId:otherProject,name:'Other estimate'})]);
+  assert.ok(setup.results.every(x=>x.status==='applied'));
+  const valid={projectId:project,estimateId:estimate,category:'labor',amount:'0.01',currency:'EUR',
+    businessDate:'2026-09-27',description:'Work'};
+  for(const bad of [{...valid,estimateId:foreignEstimate},{...valid,amount:'0.00'},
+    {...valid,currency:''},{...valid,description:''},{...valid,category:'unknown'}])
+    assert.equal((await push([op('expense',randomUUID(),'create',0,bad)])).results[0]?.status,'rejected');
+  const id=randomUUID(),created=await push([op('expense',id,'create',0,valid)]);
+  assert.equal(created.results[0]?.status,'applied');
+  const [first,second]=await Promise.all([
+    push([op('expense',id,'update',1,{amount:'0.02'})],accessA),
+    push([op('expense',id,'update',1,{amount:'0.03'})],accessA2)]);
+  assert.deepEqual([first.results[0]?.status,second.results[0]?.status].sort(),['applied','conflict']);
+  assert.equal((await pool.query<{revision:string}>('SELECT revision FROM expenses WHERE id=$1',[id])).rows[0]?.revision,'2');
+  const alien=await push([op('expense',id,'update',1,{amount:'10.00'})],accessB);
+  assert.equal(alien.results[0]?.status,'rejected');
+  assert.equal((await request('/api/v1/sync/pull?cursor=0','GET',undefined,accessB)).status,200);
+  const projectOnly=randomUUID();
+  assert.equal((await push([op('expense',projectOnly,'create',0,{...valid,estimateId:null,currency:'USD'})])).results[0]?.status,'applied');
+  assert.equal((await pool.query<{estimate_id:string|null}>('SELECT estimate_id FROM expenses WHERE id=$1',[projectOnly])).rows[0]?.estimate_id,null);
+  // Explicit project-only values cannot be silently included in a selected estimate.
+  const snapshot=await request('/api/v1/sync/snapshot','GET',undefined,accessA);
+  assert.equal((snapshot.body.entities as Array<{entityId:string;snapshot:{estimateId:string|null}}>).find(x=>x.entityId===projectOnly)?.snapshot.estimateId,null);
 });
