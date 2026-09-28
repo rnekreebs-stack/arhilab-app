@@ -51,6 +51,14 @@ before(async()=>{
 });
 after(async()=>{if(server)await new Promise<void>(resolve=>server.close(()=>resolve()));await pool.end();});
 
+async function restartTestHttpServer() {
+  await new Promise<void>(resolve=>server.close(()=>resolve()));
+  server=createApp().listen(0,'127.0.0.1');
+  await new Promise<void>(resolve=>server.once('listening',resolve));
+  const address=server.address();if(!address||typeof address==='string')throw Error('No port');
+  base=`http://127.0.0.1:${address.port}`;
+}
+
 test('push validates ordered seven-entity batch and pull paginates own and other-device changes',async()=>{
   assert.equal((await request('/api/v1/sync/push','POST',{operations:[op('project',randomUUID(),'create',0,{name:'X'})]})).status,401);
   assert.equal((await push([op('project',randomUUID(),'create',0,{name:'X'})],accessManager)).status,403);
@@ -535,6 +543,9 @@ test('F2 ownership, currency, tenant collision, stale delete/update and payment 
 
 test('F3 Android offline expense -> HTTP/PostgreSQL -> second device restart, idempotency, conflict and privacy',
   {skip:!process.env.F3_CLIENT_FIXTURE_PATH},async()=>{
+    // The prior 105-payment paging test legitimately exhausts the general IP limiter.
+    // Keep production limits intact while giving this independent device scenario a fresh HTTP server.
+    await restartTestHttpServer();
     const fixture=JSON.parse(await readFile(process.env.F3_CLIENT_FIXTURE_PATH!,'utf8')) as
       {operations:Operation[];expenseId:string;estimateId:string;projectId:string;paymentId:string};
     assert.deepEqual(fixture.operations.map(x=>x.entityType),['project','estimate','payment','expense']);
