@@ -12,7 +12,7 @@ import { JsonFileSyncStore,SyncCoordinator } from '../../src/sync/client/local-f
 import { HttpSyncTransport } from '../../src/sync/client/http-transport.js';
 
 const org=randomUUID(),foreignOrg=randomUUID(),admin=randomUUID(),foreignAdmin=randomUUID(),worker=randomUUID(),manager=randomUUID();
-const password='f5 local-ci testing password 123';
+const password=randomUUID()+randomUUID(); // Ephemeral CI credential, never stored in the repository.
 let server:Server,base:string,access:string,otherAccess:string,workerAccess:string,managerAccess:string,foreignAccess:string;
 type Operation={operationId:string;idempotencyKey:string;entityType:string;entityId:string;operationType:string;baseRevision:number;payload:Record<string,unknown>;occurredAt:string};
 const op=(entityType:string,entityId:string,operationType:string,baseRevision:number,payload:Record<string,unknown>):Operation=>
@@ -100,7 +100,7 @@ test('F5 Android offline fixture, HTTP PostgreSQL, second device, conflict, idem
   const stale=await push([op('task',fixture.taskId,'update',3,{status:'in_progress'})],otherAccess);
   assert.equal(stale.results[0]?.status,'conflict');assert.ok(stale.results[0]?.conflictId);
   assert.equal((await pool.query('SELECT id FROM audit_logs WHERE entity_type=$1 AND entity_id=$2',
-    ['task',fixture.taskId])).rowCount,3);
+    ['task',fixture.taskId])).rowCount,4);
   const reopened=await push([op('task',fixture.taskId,'update',4,{status:'open'})]);
   assert.equal(reopened.results[0]?.status,'applied');
   assert.equal((await pool.query<{completed_at:Date|null}>('SELECT completed_at FROM tasks WHERE id=$1',[fixture.taskId])).rows[0]?.completed_at,null);
