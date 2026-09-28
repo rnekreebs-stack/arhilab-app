@@ -21,7 +21,7 @@ const {chromium}=require('playwright');
   });
   await page.goto('file://'+path.resolve(__dirname,'../assets/index.html'));
   await page.fill('[name=login]','admin');await page.fill('[name=password]','test-password');await page.click('button[type=submit]');
-  await page.getByText('Объект',{exact:true}).first().click();
+  await page.locator('#app .card[role="button"]').filter({hasText:'Объект'}).click();
   assert.match(await page.locator('#detail').innerText(),/Недоступно фото сметы: 1/);
   await page.locator('.tabs').getByText('Фото',{exact:true}).click();
   assert.match(await page.locator('#detail').innerText(),/Недоступно фото объекта: 1/);
