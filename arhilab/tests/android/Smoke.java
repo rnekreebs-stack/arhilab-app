@@ -28,7 +28,7 @@ public class Smoke extends Instrumentation {
  void check(String expression,String label)throws Exception{if(!"true".equals(js(expression)))throw new Exception(label+": "+js(expression));report(label);}
  void report(String message){Bundle b=new Bundle();b.putString("stream","PASS: "+message+"\n");sendStatus(0,b);}
  JSONObject database()throws Exception{Field field=activity.getClass().getDeclaredField("db");field.setAccessible(true);return (JSONObject)field.get(activity);}
- File fixture(String name){File dir=getContext().getFilesDir();if(!dir.isDirectory()&&!dir.mkdirs())throw new IllegalStateException("Cannot create smoke fixture directory");return new File(dir,name);}
+ File fixture(String name){File dir=getTargetContext().getFilesDir();if(!dir.isDirectory()&&!dir.mkdirs())throw new IllegalStateException("Cannot create smoke fixture directory");return new File(dir,name);}
  void write(String name,byte[] bytes)throws Exception{try(FileOutputStream out=new FileOutputStream(fixture(name))){out.write(bytes);out.getFD().sync();}}
  byte[] read(String name)throws Exception{try(FileInputStream in=new FileInputStream(fixture(name));ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toByteArray();}}
  JSONObject snapshot()throws Exception{
