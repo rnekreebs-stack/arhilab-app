@@ -7,7 +7,7 @@ public final class F7DocumentsTest {
   String id=UUID.randomUUID().toString(),uid=UUID.randomUUID().toString();
   JSONObject p=new JSONObject().put("id",id).put("name","<script>alert(1)</script>").put("address","Адрес")
    .put("client","Клиент").put("lines",new JSONArray().put(new JSONObject().put("id",UUID.randomUUID().toString())
-     .put("name","Монтаж").put("unit","м²").put("qty","2.5000").put("coef","1").put("price","1234.00")
+     .put("name","Монтаж").put("category","Раздел").put("unit","м²").put("qty","2.5000").put("coef","1").put("price","1234.00")
      .put("cost","999").put("autoMaterial",true).put("materialPrice","100.00")))
    .put("materials",new JSONArray()).put("expenses",new JSONArray().put(new JSONObject().put("amount",9999)))
    .put("tasks",new JSONArray()).put("payments",new JSONArray()).put("workMarkupPercent","10").put("delivery",50).put("discount",10);
