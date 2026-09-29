@@ -20,7 +20,7 @@ async function change(client:PoolClient,ctx:ReturnType<typeof identity>,row:Row,
   const snapshot={...present(row),requestId:row.idempotency_key,createdBy:row.created_by,deletedAt:null};
   const result={operationId,status:'applied',resultingRevision:Number(row.revision),sequence};
   await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result,change_sequence)
-    VALUES($1,$2,$3,'clientDocument',$4,$5,$6,$7,'applied',$1,1,now(),$8,$9,$10)`,[operationId,ctx.organizationId,ctx.deviceId,row.id,action,Number(row.revision)-1,Number(row.revision),'0'.repeat(64),JSON.stringify(result),sequence]);
+    VALUES($1,$2,$3,'clientDocument',$4,$5,$6,$7,'applied',$11,1,now(),$8,$9,$10)`,[operationId,ctx.organizationId,ctx.deviceId,row.id,action,Number(row.revision)-1,Number(row.revision),'0'.repeat(64),JSON.stringify(result),sequence,operationId]);
   await client.query(`INSERT INTO sync_changes(organization_id,sequence,entity_type,entity_id,revision,operation_type,snapshot,source_device_id,sync_operation_id)
     VALUES($1,$2,'clientDocument',$3,$4,$5,$6,$7,$8)`,[ctx.organizationId,sequence,row.id,Number(row.revision),action,JSON.stringify(snapshot),ctx.deviceId,operationId]);
 }
@@ -51,12 +51,6 @@ clientDocumentsRouter.post('/',async(req,res)=>{
     await change(client,ctx,inserted.rows[0]!,'create');
     await audit(client,ctx.organizationId,'client_document.created',ctx.userId,ctx.deviceId,'clientDocument',id);
     return {row:inserted.rows[0]!,duplicate:false};
-  }).catch((error:unknown)=>{
-    if(process.env.NODE_ENV==='test'){
-      const failure=error as {code?:string;constraint?:string;message?:string};
-      process.stderr.write(`F7 create diagnostic: ${JSON.stringify({code:failure.code,constraint:failure.constraint,message:failure.message})}\n`);
-    }
-    throw error;
   });
   res.status(outcome.duplicate?200:201).json({document:present(outcome.row),duplicate:outcome.duplicate});
 });
