@@ -9,7 +9,7 @@ adb logcat -c
 adb shell am instrument -w -e mode upgradePrepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-upgrade-prepare.txt
 grep -q ARHILAB_UPGRADE_PREPARE_PASS output/android-upgrade-prepare.txt
 adb shell am force-stop ru.arhilab.estimate
-adb install -r output/Arhilab-Смета-0.7.0-F6-debug.apk | tee output/android-upgrade-install.txt
+adb install -r output/Arhilab-Смета-0.7.0-F7-debug.apk | tee output/android-upgrade-install.txt
 grep -q Success output/android-upgrade-install.txt
 adb shell am instrument -w -e mode upgradeVerify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-upgrade-verify.txt
 grep -q ARHILAB_UPGRADE_PASS output/android-upgrade-verify.txt
@@ -20,7 +20,7 @@ for restart in 1 2; do
 done
 # A separate clean-install scenario starts after the in-place upgrade assertions passed.
 adb uninstall ru.arhilab.estimate
-adb install output/Arhilab-Смета-0.7.0-F6-debug.apk
+adb install output/Arhilab-Смета-0.7.0-F7-debug.apk
 adb shell cmd connectivity airplane-mode enable
 adb shell svc wifi disable
 adb shell svc data disable
@@ -38,6 +38,22 @@ adb shell run-as ru.arhilab.estimate ls -l files/data.enc | tee output/android-d
 adb logcat -d -s AndroidRuntime > output/android-crash-log.txt
 if grep -q 'FATAL EXCEPTION' output/android-crash-log.txt; then exit 1; fi
 adb exec-out screencap -p > output/android-final.png
+# Separate F6 -> F7 in-place upgrade track; no uninstall or clear between these two APKs.
+adb uninstall ru.arhilab.estimate
+adb shell cmd connectivity airplane-mode disable
+adb install output/upgrade-baseline-f6-debug.apk
+adb shell am instrument -w -e mode f6Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-f6-debug-before.txt
+grep -q ARHILAB_F6_PREPARE_PASS output/android-f6-debug-before.txt
+adb shell am force-stop ru.arhilab.estimate
+adb install -r output/Arhilab-Смета-0.7.0-F7-debug.apk | tee output/android-f6-debug-install.txt
+grep -q Success output/android-f6-debug-install.txt
+adb shell am instrument -w -e mode f6Verify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-f6-debug-after.txt
+grep -q ARHILAB_F6_F7_UPGRADE_PASS output/android-f6-debug-after.txt
+for restart in 1 2; do
+  adb shell am force-stop ru.arhilab.estimate
+  adb shell am instrument -w -e mode f6Restart ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee "output/android-f6-debug-restart-$restart.txt"
+  grep -q ARHILAB_F6_F7_RESTART_PASS "output/android-f6-debug-restart-$restart.txt"
+done
 if [[ -f output/upgrade-baseline-0.6.2-release.apk ]]; then
   # New isolated signing track. Its 0.6.2 -> 0.7.0 transition never uninstalls the baseline.
   adb uninstall ru.arhilab.estimate
@@ -47,11 +63,23 @@ if [[ -f output/upgrade-baseline-0.6.2-release.apk ]]; then
   adb shell am instrument -w -e mode upgradePrepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-release-upgrade-prepare.txt
   grep -q ARHILAB_UPGRADE_PREPARE_PASS output/android-release-upgrade-prepare.txt
   adb shell am force-stop ru.arhilab.estimate
-  adb install -r output/Arhilab-Смета-0.7.0-F6-release.apk | tee output/android-release-upgrade-install.txt
+  adb install -r output/Arhilab-Смета-0.7.0-F7-release.apk | tee output/android-release-upgrade-install.txt
   grep -q Success output/android-release-upgrade-install.txt
   adb shell am instrument -w -e mode upgradeVerify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-release-upgrade-verify.txt
   grep -q ARHILAB_UPGRADE_PASS output/android-release-upgrade-verify.txt
   adb shell am force-stop ru.arhilab.estimate
   adb shell am instrument -w -e mode upgradeRestart ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-release-upgrade-restart.txt
   grep -q ARHILAB_UPGRADE_RESTART_PASS output/android-release-upgrade-restart.txt
+  adb uninstall ru.arhilab.estimate
+  adb install output/upgrade-baseline-f6-release.apk
+  adb shell am instrument -w -e mode f6Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-f6-release-before.txt
+  grep -q ARHILAB_F6_PREPARE_PASS output/android-f6-release-before.txt
+  adb shell am force-stop ru.arhilab.estimate
+  adb install -r output/Arhilab-Смета-0.7.0-F7-release.apk | tee output/android-f6-release-install.txt
+  grep -q Success output/android-f6-release-install.txt
+  adb shell am instrument -w -e mode f6Verify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-f6-release-after.txt
+  grep -q ARHILAB_F6_F7_UPGRADE_PASS output/android-f6-release-after.txt
+  adb shell am force-stop ru.arhilab.estimate
+  adb shell am instrument -w -e mode f6Restart ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-f6-release-restart.txt
+  grep -q ARHILAB_F6_F7_RESTART_PASS output/android-f6-release-restart.txt
 fi

@@ -6,6 +6,7 @@ import { assertCurrentAdmin, transaction, type Identity } from '../services/secu
 import { parsePayload, specification, visibleSnapshot, type EntityType } from './registry.js';
 import { canonical } from './canonical.js';
 import { catalogSkuIds } from './catalog-skus.js';
+import {projectClient,type EstimateMeta,type EstimateRow,type Settings} from '../f7/projection.js';
 import type { SyncOperation } from './validation.js';
 
 export type SyncResult = {
@@ -43,15 +44,47 @@ function cents(value:unknown):bigint {
 }
 async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise<{result:SyncResult;state?:Record<string,unknown>;table?:string}> {
   if(op.entityType==='photo'||op.entityType==='document') return {result:rejected(op,'unsupported','file_api_required')};
+  if(op.entityType==='clientDocument'&&op.operationType==='delete')return {result:rejected(op,'validation','document_deletion_not_supported')};
   const spec=specification(op.entityType);
   if (!spec) return {result:rejected(op,'unsupported','unsupported_entity')};
   if (!['create','update','delete'].includes(op.operationType)) return {result:rejected(op,'unsupported','unsupported_operation')};
   const payload=parsePayload(op.entityType as EntityType,op.operationType,op.payload);
   if (!payload) return {result:rejected(op,'validation','invalid_payload')};
   if (!await referencesValid(client,ctx.organizationId,payload)) return {result:rejected(op,'validation','invalid_reference')};
+  if(op.entityType==='clientDocument'&&op.operationType!=='delete') {
+    if(op.operationType==='create'){
+      const estimate=await client.query<EstimateMeta>(`SELECT e.name,p.name AS project_name,p.address,p.client_name,e.work_markup_percent::text,e.delivery_amount::text,e.discount_amount::text,e.currency
+        FROM estimates e JOIN projects p ON p.id=e.project_id AND p.organization_id=e.organization_id
+        WHERE e.organization_id=$1 AND e.id=$2 AND e.project_id=$3 AND e.deleted_at IS NULL AND p.deleted_at IS NULL`,[ctx.organizationId,payload.estimateId,payload.projectId]);
+      if(!estimate.rows[0])return {result:rejected(op,'validation','invalid_document_context')};
+      const items=await client.query<EstimateRow>(`SELECT i.title,i.quantity::text,i.unit,i.unit_price::text,i.coefficient::text,i.item_kind,i.auto_material,i.material_price::text,i.extra,i.extra_status,s.name AS stage_name
+        FROM estimate_items i LEFT JOIN stages s ON s.id=i.stage_id AND s.organization_id=i.organization_id
+        WHERE i.organization_id=$1 AND i.estimate_id=$2 AND i.deleted_at IS NULL ORDER BY i.created_at,i.id`,[ctx.organizationId,payload.estimateId]);
+      try {const calculated=projectClient(estimate.rows[0],items.rows,payload.settings as Settings);
+        if(calculated.total!==(payload.snapshot as {total:string}).total)return {result:rejected(op,'validation','document_total_mismatch')};
+        payload.snapshot=calculated;
+      }catch{return {result:rejected(op,'validation','invalid_document_projection')};}
+      const number=String(payload.number),collision=await client.query('SELECT 1 FROM client_documents WHERE organization_id=$1 AND (document_number=$2 OR (estimate_id=$3 AND document_type=$4 AND version=$5) OR idempotency_key=$6)',
+        [ctx.organizationId,number,payload.estimateId,payload.type,payload.version,payload.requestId]);
+      if(collision.rowCount)return {result:rejected(op,'conflict','document_number_or_version_conflict')};
+      const prefix=number.split('-'),year=Number(prefix[1]),sequence=Number(prefix[2]);
+      await client.query(`INSERT INTO client_document_sequences(organization_id,document_type,document_year,last_number) VALUES($1,$2,$3,$4)
+        ON CONFLICT (organization_id,document_type,document_year) DO UPDATE SET last_number=greatest(client_document_sequences.last_number,excluded.last_number)`,
+        [ctx.organizationId,payload.type,year,sequence]);
+      payload.createdBy=ctx.userId;
+      payload.finalizedAt=payload.status==='final'?new Date().toISOString():null;
+    }else{
+      if(Object.keys(payload).some(k=>!['status'].includes(k))||payload.status!=='final')return {result:rejected(op,'validation','document_snapshot_immutable')};
+      payload.finalizedAt=new Date().toISOString();
+    }
+  }
   const found=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE id=$1 FOR NO KEY UPDATE`,[op.entityId]);
   const current=found.rows[0];
   if (current && current.organization_id !== ctx.organizationId) return {result:rejected(op,'authorization','entity_not_available')};
+  if(op.entityType==='clientDocument'&&current){
+    if(op.operationType==='delete')return {result:rejected(op,'validation','document_deletion_not_supported')};
+    if(current.status==='final')return {result:rejected(op,'validation','document_snapshot_immutable')};
+  }
   if(op.entityType==='stage' && op.operationType!=='delete') {
     if(current && ['projectId','estimateId'].some(key=>payload[key]!==undefined&&payload[key]!==current[spec.fields[key]!]))
       return {result:rejected(op,'validation','stage_owner_immutable')};
@@ -257,7 +290,7 @@ export async function applyOperation(ctx:Identity,op:SyncOperation):Promise<Sync
     const reusedId=await client.query('SELECT id FROM sync_operations WHERE id=$1',[op.operationId]);
     if (reusedId.rowCount) return rejected(op,'conflict','operation_id_reused');
     const {result,state}=await mutation(client,ctx,op);
-    if(result.status==='applied' && (['payment','expense','stage','progressEntry','task','procurementRequest','procurementReceipt'].includes(op.entityType) ||
+    if(result.status==='applied' && (['payment','expense','stage','progressEntry','task','procurementRequest','procurementReceipt','clientDocument'].includes(op.entityType) ||
       op.entityType==='estimateItem' && typeof op.payload==='object' && op.payload!==null && 'stageId' in op.payload)) await client.query(
       'INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
       [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`${op.entityType}.${op.operationType}`,op.entityType,op.entityId]);
@@ -311,7 +344,7 @@ export async function pullChanges(ctx:Identity,cursor:string,limit:number) {
   const page=changes.rows.slice(0,limit);
   const visible=[];
   for(const row of page) {
-    if(ctx.role!=='admin' && ['payment','expense'].includes(row.entity_type))continue;
+    if(ctx.role!=='admin' && ['payment','expense','clientDocument'].includes(row.entity_type))continue;
     if(ctx.role==='worker' && row.entity_type==='procurementReceipt')continue;
     let state=row.snapshot,operation=row.operation_type;
     if(ctx.role==='worker' && ['task','procurementRequest'].includes(row.entity_type) && state.assigneeId!==ctx.userId) {

@@ -233,6 +233,17 @@ final class F1SyncLedger {
                     .put("estimateItemId",task.optString("estimateItemId","").isEmpty()?JSONObject.NULL:task.getString("estimateItemId"));
                 row(rows,"task",task.getString("id"),payload);
             }
+            JSONArray documents=project.optJSONArray("clientDocuments");
+            if(documents!=null)for(int i=0;i<documents.length();i++){
+                JSONObject d=documents.getJSONObject(i);
+                row(rows,"clientDocument",d.getString("id"),new JSONObject()
+                    .put("projectId",projectId).put("estimateId",d.getString("estimateId"))
+                    .put("type",d.getString("type")).put("number",d.getString("number"))
+                    .put("version",d.getInt("version")).put("status",d.getString("status"))
+                    .put("requestId",d.getString("requestId"))
+                    .put("snapshot",new JSONObject(d.getJSONObject("snapshot").toString()))
+                    .put("settings",new JSONObject(d.getJSONObject("snapshot").getJSONObject("settings").toString())));
+            }
         }
         return rows;
     }
@@ -298,12 +309,14 @@ final class F1SyncLedger {
         ArrayList<String> changed = new ArrayList<>();
         for (Iterator<String> keys = rows.keys(); keys.hasNext();) changed.add(keys.next());
         // Store in foreign-key dependency order even though org.json does not promise insertion order.
-        for (String type : new String[]{"project", "estimate", "stage", "estimateItem", "progressEntry", "payment", "task", "procurementRequest", "procurementReceipt", "expense"}) {
+        for (String type : new String[]{"project", "estimate", "stage", "estimateItem", "progressEntry", "payment", "task", "procurementRequest", "procurementReceipt", "expense", "clientDocument"}) {
             for (String key : changed) {
                 if (!key.startsWith(type + ":")) continue;
                 JSONObject payload = rows.getJSONObject(key);
                 if (shadow.has(key) && equal(shadow.getJSONObject(key), payload)) continue;
-                enqueue(operations, revisions, key, shadow.has(key) ? "update" : "create", payload);
+                boolean update=shadow.has(key);
+                enqueue(operations, revisions, key, update ? "update" : "create",
+                    update&&type.equals("clientDocument")?new JSONObject().put("status",payload.getString("status")):payload);
                 shadow.put(key, new JSONObject(payload.toString()));
             }
         }
@@ -312,7 +325,7 @@ final class F1SyncLedger {
             String key = keys.next();
             if (!rows.has(key)) removed.add(key);
         }
-        for (String type : new String[]{"expense", "procurementReceipt", "procurementRequest", "task", "payment", "progressEntry", "estimateItem", "stage", "estimate", "project"}) {
+        for (String type : new String[]{"clientDocument", "expense", "procurementReceipt", "procurementRequest", "task", "payment", "progressEntry", "estimateItem", "stage", "estimate", "project"}) {
             for (String key : removed) {
                 if (!key.startsWith(type + ":")) continue;
                 enqueue(operations, revisions, key, "delete", new JSONObject());

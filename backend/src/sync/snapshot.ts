@@ -12,7 +12,7 @@ export async function snapshotForBootstrap(ctx:Identity,afterCursorRead?:()=>Pro
     if(afterCursorRead) await afterCursorRead();
     const entities:Array<{entityType:string;entityId:string;revision:number;snapshot:Record<string,unknown>}>=[];
     for(const type of entityTypes) {
-      if((type==='payment'||type==='expense') && ctx.role!=='admin') continue;
+      if((type==='payment'||type==='expense'||type==='clientDocument') && ctx.role!=='admin') continue;
       if(type==='procurementReceipt' && ctx.role==='worker') continue;
       const spec=specification(type);
       if(!spec) continue;

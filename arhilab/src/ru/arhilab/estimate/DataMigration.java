@@ -5,7 +5,7 @@ import org.json.JSONObject;
 
 /** Changes to the encrypted local data format. Never discards unknown fields. */
 final class DataMigration {
-    static final int CURRENT = 8;
+    static final int CURRENT = 9;
 
     static JSONObject migrate(JSONObject source) throws Exception {
         JSONObject data = new JSONObject(source.toString());
@@ -67,6 +67,11 @@ final class DataMigration {
                 JSONArray projects=data.getJSONArray("projects");
                 for(int i=0;i<projects.length();i++)F6Procurement.ensure(projects.getJSONObject(i));
                 version=8;data.put("schemaVersion",version);
+            }
+            if(version == 8){
+                JSONArray projects=data.getJSONArray("projects");
+                for(int i=0;i<projects.length();i++)F7Documents.list(projects.getJSONObject(i));
+                version=9;data.put("schemaVersion",version);
             }
         }
         return data;

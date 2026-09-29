@@ -15,6 +15,7 @@ import { syncRouter } from './sync/routes.js';
 import { conflictsRouter } from './sync/conflicts.js';
 import { migrationRouter } from './migration/routes.js';
 import { filesRouter } from './files/routes.js';
+import { clientDocumentsRouter } from './f7/routes.js';
 import { storage } from './files/storage.js';
 
 export function createApp(db: Pick<Pool, 'query'> = pool) {
@@ -42,6 +43,7 @@ export function createApp(db: Pick<Pool, 'query'> = pool) {
   app.use('/api/v1/sync/conflicts',conflictsRouter);
   app.use('/api/v1/migrations',migrationRouter);
   app.use('/api/v1/files',filesRouter);
+  app.use('/api/v1/client-documents',clientDocumentsRouter);
   app.use(notFound);
   app.use(errorHandler);
   return app;

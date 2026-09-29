@@ -22,7 +22,7 @@ final class F1SyncMerge {
 
     static void apply(JSONObject db, JSONObject change) throws Exception {
         String type = change.getString("entityType"), id = change.getString("entityId");
-        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment") && !type.equals("expense") && !type.equals("stage") && !type.equals("progressEntry") && !type.equals("task") && !type.equals("procurementRequest") && !type.equals("procurementReceipt")) return;
+        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment") && !type.equals("expense") && !type.equals("stage") && !type.equals("progressEntry") && !type.equals("task") && !type.equals("procurementRequest") && !type.equals("procurementReceipt") && !type.equals("clientDocument")) return;
         JSONObject sync = F1SyncLedger.state(db);
         String key = type + ":" + id;
         JSONArray jobs = sync.getJSONArray("operations");
@@ -83,6 +83,23 @@ final class F1SyncMerge {
                     LocalEstimates.ensure(p);
                 }
             }
+        } else if (type.equals("clientDocument")) {
+            if(deleted)throw new IllegalStateException("Финальный документ нельзя удалить без ручного решения");
+            JSONObject p=find(projects,snapshot.getString("projectId"));
+            if(p==null)throw new IllegalStateException("Объект документа отсутствует");
+            F7Documents.estimate(p,snapshot.getString("estimateId"));
+            JSONArray docs=F7Documents.list(p);JSONObject d=find(docs,id);
+            if(d==null){d=new JSONObject().put("id",id);docs.put(d);}
+            else if(d.optString("status").equals("final")&&!d.getJSONObject("snapshot").toString().equals(snapshot.getJSONObject("snapshot").toString()))
+                throw new IllegalStateException("Снимок финального документа изменился");
+            d.put("projectId",p.getString("id")).put("estimateId",snapshot.getString("estimateId"))
+             .put("type",snapshot.getString("type")).put("number",snapshot.getString("number"))
+             .put("version",snapshot.getInt("version")).put("status",snapshot.getString("status"))
+             .put("requestId",snapshot.getString("requestId"))
+             .put("snapshot",new JSONObject(snapshot.getJSONObject("snapshot").toString()))
+             .put("createdAt",snapshot.optString("createdAt",java.time.Instant.now().toString()))
+             .put("finalizedAt",snapshot.optString("finalizedAt",""))
+             .put("serverRevision",change.getInt("revision"));
         } else if (type.equals("stage") || type.equals("progressEntry")) {
             JSONObject p=find(projects,snapshot.getString("projectId"));
             if(p==null)throw new IllegalStateException("Отсутствует объект журнала выполнения");

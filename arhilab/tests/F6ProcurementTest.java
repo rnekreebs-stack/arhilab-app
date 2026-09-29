@@ -18,7 +18,7 @@ public final class F6ProcurementTest {
         JSONObject database=DataMigration.migrate(new JSONObject().put("schemaVersion",7)
             .put("users",new JSONArray()).put("projects",new JSONArray().put(project)));
         project=database.getJSONArray("projects").getJSONObject(0);
-        check(database.getInt("schemaVersion")==8,"v7 to v8");
+        check(database.getInt("schemaVersion")==DataMigration.CURRENT,"v7 to v8");
         check(project.getJSONArray("procurementRequests").length()==0,"no invented legacy request");
         JSONObject catalog=new JSONObject().put("materials",new JSONArray().put(new JSONObject().put("id","1")));
         JSONObject r=F6Procurement.saveRequest(project,request("Кабель","3.0000").put("catalogSku","1"),catalog);

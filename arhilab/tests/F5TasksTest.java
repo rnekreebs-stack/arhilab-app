@@ -21,7 +21,7 @@ public final class F5TasksTest {
         JSONObject db=DataMigration.migrate(new JSONObject().put("schemaVersion",6)
             .put("users",new JSONArray()).put("projects",new JSONArray().put(project)));
         project=db.getJSONArray("projects").getJSONObject(0);
-        check(db.getInt("schemaVersion")==8,"F5 and F6 migrations not applied");
+        check(db.getInt("schemaVersion")==DataMigration.CURRENT,"F5 and F6 migrations not applied");
         check(project.getJSONArray("tasks").getJSONObject(0).getString("taskStatus").equals("open"),"paused legacy status lost");
         check(project.getJSONArray("tasks").getJSONObject(0).getInt("progress")==35,"manual progress lost");
         check(DataMigration.migrate(db).getJSONArray("projects").getJSONObject(0).getJSONArray("tasks").length()==1,
