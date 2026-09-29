@@ -89,7 +89,7 @@ public class Smoke extends Instrumentation {
    check("api('status').setup===true",mode.equals("f6Prepare")?"F6 baseline clean install":"0.6.2 baseline clean install");
    js("api('setup',{name:'Upgrade admin',password:"+JSONObject.quote(smokePassword)+"})");
    js("enter()");
-   check("api('session').active&&api('about').version==='"+(mode.equals("f6Prepare")?"0.7.0':'0.6.2')+"'","baseline admin registered and version verified");
+   check("api('session').active&&api('about').version==='"+(mode.equals("f6Prepare")?"0.7.0":"0.6.2")+"'","baseline admin registered and version verified");
    js("api('project',{name:'Upgrade A',address:'Address A',status:'Новый',delivery:0,discount:0,deliveryCost:0,overhead:0,otherCost:0})");
    js("api('line',{project:S.projects[0].id,work:C.works.find(w=>w.tiers.standard.materialIds.length).id,qty:3.5,coef:1,price:1234,autoMaterial:true,tier:'standard',cost:60})");
    js("api('line',{project:S.projects[0].id,work:C.works.find(w=>!w.tiers.standard.materialIds.length).id,qty:7,coef:1,price:9876,autoMaterial:false,tier:'standard',cost:50})");

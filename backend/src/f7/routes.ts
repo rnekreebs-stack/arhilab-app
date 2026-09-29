@@ -51,6 +51,12 @@ clientDocumentsRouter.post('/',async(req,res)=>{
     await change(client,ctx,inserted.rows[0]!,'create');
     await audit(client,ctx.organizationId,'client_document.created',ctx.userId,ctx.deviceId,'clientDocument',id);
     return {row:inserted.rows[0]!,duplicate:false};
+  }).catch((error:unknown)=>{
+    if(process.env.NODE_ENV==='test'){
+      const failure=error as {code?:string;constraint?:string;message?:string};
+      process.stderr.write(`F7 create diagnostic: ${JSON.stringify({code:failure.code,constraint:failure.constraint,message:failure.message})}\n`);
+    }
+    throw error;
   });
   res.status(outcome.duplicate?200:201).json({document:present(outcome.row),duplicate:outcome.duplicate});
 });
