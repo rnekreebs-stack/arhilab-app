@@ -51,7 +51,7 @@ final class F7Pdf {
             return;
         }
         String previous=null;
-        for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i),section=row.optString("section","Общие работы");
+        for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);String section=row.optString("section","Общие работы");
             if(sections&&!section.equals(previous)){text(section,12,number);previous=section;}row(row,number);}
     }
     static File render(File root,JSONObject doc)throws Exception {
