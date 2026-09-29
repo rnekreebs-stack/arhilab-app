@@ -19,6 +19,8 @@ public final class F7DocumentsTest {
   JSONObject v1=F7Documents.create(p,estimate,"COMMERCIAL_OFFER",options,request,uid);
   String before=v1.getJSONObject("snapshot").toString();
   check(v1.getJSONObject("snapshot").getString("total").equals("3683.50"),"decimal and historical price");
+  JSONObject section=v1.getJSONObject("snapshot").getJSONArray("sections").getJSONObject(0);
+  check(section.getString("workTotal").equals("3085.00")&&section.getString("materialTotal").equals("250.00")&&section.getString("total").equals("3335.00"),"section work and material subtotals");
   for(String secret:new String[]{"expenses","cost","profit","margin","sessionHash","9999"})check(!before.contains(secret),"secret leaked: "+secret);
   check(F7Documents.create(p,estimate,"COMMERCIAL_OFFER",options,request,uid).getString("id").equals(v1.getString("id")),"retry duplicate");
   F7Documents.finalizeDocument(p,v1.getString("id"));p.getJSONArray("lines").getJSONObject(0).put("qty","3.0000").put("price","1500.00");

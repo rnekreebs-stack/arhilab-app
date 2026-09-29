@@ -9,8 +9,10 @@ test('F7 derives historical decimal prices and a client-only projection',()=>{
  const x=projectClient(meta,[source],options);
  assert.equal(x.works[0]?.unitPrice,'1234.00');assert.equal(x.works[0]?.total,'3085.00');
  assert.equal(x.materialTotal,'250.00');assert.equal(x.workMarkup,'308.50');assert.equal(x.total,'3683.50');
+ assert.deepEqual(x.sections,[{title:'Раздел',workTotal:'3085.00',materialTotal:'250.00',total:'3335.00'}]);
  for(const forbidden of ['cost','profit','private_fields','expenses','password','secret'])assert.ok(!JSON.stringify(x).includes(forbidden));
  const hidden=projectClient(meta,[row],{...options,materials:'hidden'});assert.equal(hidden.materials.length,0);assert.equal(hidden.materialTotal,'');assert.equal(hidden.total,x.total);
+ assert.equal(hidden.sections[0]?.materialTotal,'');assert.equal(hidden.sections[0]?.total,'');
  const noPrice=projectClient(meta,[row],{...options,showMaterialPrices:false});assert.ok(!('unitPrice' in (noPrice.materials[0]??{})));
 });
 test('F7 excludes unapproved extras and rejects mixed currency',()=>{

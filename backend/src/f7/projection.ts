@@ -22,8 +22,17 @@ export function projectClient(meta:EstimateMeta,source:EstimateRow[],settings:Se
   const markup=scaled(meta.work_markup_percent,2),markupAmount=rounded(works*markup,10000n);
   const delivery=scaled(meta.delivery_amount,2),discount=scaled(meta.discount_amount,2),total=works+markupAmount+materials+delivery-discount;
   if(total<0n)throw Error('Negative estimate total');
+  const groups=new Map<string,{work:bigint;material:bigint}>();
+  for(const [kind,rows] of [['work',workRows],['material',materialRows]] as const)for(const row of rows){
+    const name=row.section??'Общие работы',amount=groups.get(name)??{work:0n,material:0n};
+    amount[kind]+=scaled(row.total??'0',2);groups.set(name,amount);
+  }
+  const sections=[...groups.entries()].map(([title,amount])=>({title,workTotal:decimal(amount.work),
+    materialTotal:settings.materials==='hidden'?'':decimal(amount.material),
+    total:settings.materials==='hidden'?'':decimal(amount.work+amount.material)}));
   return {projectName:meta.project_name,address:meta.address??'',clientName:meta.client_name??'',estimateName:meta.name,
     works:workRows,materials:settings.materials==='detailed'?materialRows.map(row=>settings.showMaterialPrices?row:(({unitPrice:_unitPrice,...safe})=>safe)(row)):[],
+    sections,
     workTotal:decimal(works),workMarkup:decimal(markupAmount),materialTotal:settings.materials==='hidden'?'':decimal(materials),
     delivery:decimal(delivery),discount:decimal(discount),total:decimal(total),currency:'RUB',settings};
 }

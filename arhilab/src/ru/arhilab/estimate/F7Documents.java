@@ -3,6 +3,8 @@ package ru.arhilab.estimate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -71,6 +73,18 @@ final class F7Documents {
         BigDecimal markupAmount=cents(work.multiply(markup).divide(new BigDecimal("100"),8,RoundingMode.HALF_UP));
         BigDecimal delivery=cents(dec(estimate,"delivery","0")),discount=cents(dec(estimate,"discount","0"));
         BigDecimal total=cents(work.add(markupAmount).add(mat).add(delivery).subtract(discount));
+        LinkedHashMap<String,BigDecimal[]> sectionTotals=new LinkedHashMap<>();
+        for(JSONArray group:new JSONArray[]{works,materials})for(int i=0;i<group.length();i++){
+            JSONObject entry=group.getJSONObject(i);String section=entry.optString("section","Общие работы");
+            BigDecimal[] amounts=sectionTotals.get(section);if(amounts==null){amounts=new BigDecimal[]{BigDecimal.ZERO,BigDecimal.ZERO};sectionTotals.put(section,amounts);}
+            int column=group==works?0:1;amounts[column]=amounts[column].add(new BigDecimal(entry.getString("total")));
+        }
+        JSONArray sections=new JSONArray();for(Map.Entry<String,BigDecimal[]> entry:sectionTotals.entrySet()){
+            BigDecimal[] amounts=entry.getValue();sections.put(new JSONObject().put("title",entry.getKey())
+                .put("workTotal",cents(amounts[0]).toPlainString())
+                .put("materialTotal",mode.equals("hidden")?"":cents(amounts[1]).toPlainString())
+                .put("total",mode.equals("hidden")?"":cents(amounts[0].add(amounts[1])).toPlainString()));
+        }
         JSONObject options=new JSONObject().put("materials",mode).put("showMaterialPrices",showPrices)
             .put("showSections",settings.optBoolean("showSections",true));
         for(String field:new String[]{"paymentTerms","timeline","warranty","note","companyDetails"}){
@@ -79,7 +93,7 @@ final class F7Documents {
         JSONObject safe=new JSONObject().put("type",type).put("estimateId",estimateId)
             .put("projectName",project.optString("name")).put("address",project.optString("address"))
             .put("clientName",project.optString("client")).put("estimateName",estimate.optBoolean("legacy")?"Исходная смета":estimate.optString("name"))
-            .put("works",works).put("materials",mode.equals("detailed")?materials:new JSONArray())
+            .put("works",works).put("materials",mode.equals("detailed")?materials:new JSONArray()).put("sections",sections)
             .put("workTotal",cents(work).toPlainString()).put("workMarkup",markupAmount.toPlainString())
             .put("materialTotal",mode.equals("hidden")?"":cents(mat).toPlainString())
             .put("delivery",delivery.toPlainString()).put("discount",discount.toPlainString())

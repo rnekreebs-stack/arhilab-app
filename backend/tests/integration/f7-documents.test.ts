@@ -31,6 +31,10 @@ test('F7 PostgreSQL snapshot, retries, isolation, immutable final, numbering and
  const first=await call(path,'POST',payload);assert.equal(first.status,201);
  const doc=first.data.document as {id:string;number:string;version:number;snapshot:{total:string;works:Array<{unitPrice:string}>};status:string};
  assert.equal(doc.snapshot.total,'3683.50');assert.equal(doc.snapshot.works[0]?.unitPrice,'1234.00');
+ const feed=await call('/api/v1/sync/pull?cursor=0&limit=100');
+ assert.ok((feed.data.changes as Array<{entityType:string;entityId:string}>).some(row=>row.entityType==='clientDocument'&&row.entityId===doc.id));
+ const workerFeed=await call('/api/v1/sync/pull?cursor=0&limit=100','GET',undefined,workerToken);
+ assert.ok(!(workerFeed.data.changes as Array<{entityType:string}>).some(row=>row.entityType==='clientDocument'));
  assert.ok(!/cost|profit|margin|expenses|procurement|password|999\.00/i.test(JSON.stringify(doc.snapshot)));
  assert.equal((await call(path,'POST',payload)).status,200);
  assert.equal((await call(path,'POST',{...payload,estimateId:otherEstimate})).status,409);

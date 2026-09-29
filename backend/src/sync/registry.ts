@@ -12,7 +12,9 @@ const clientSettings=z.strictObject({materials:z.enum(['hidden','subtotal','deta
   paymentTerms:z.string().max(2000),timeline:z.string().max(2000),warranty:z.string().max(2000),note:z.string().max(2000),companyDetails:z.string().max(2000)});
 const clientSnapshot=z.strictObject({type:z.enum(['COMMERCIAL_OFFER','DETAILED_ESTIMATE','SUMMARY_ESTIMATE']).optional(),estimateId:uuid.optional(),
   projectName:z.string().max(5000),address:z.string().max(5000),clientName:z.string().max(5000),estimateName:z.string().max(5000),
-  works:z.array(clientRow).max(3000),materials:z.array(clientRow).max(3000),workTotal:money,workMarkup:money,
+  works:z.array(clientRow).max(3000),materials:z.array(clientRow).max(3000),
+  sections:z.array(z.strictObject({title:z.string().max(500),workTotal:money,materialTotal:z.union([money,z.literal('')]),total:z.union([money,z.literal('')])})).max(3000),
+  workTotal:money,workMarkup:money,
   materialTotal:z.union([money,z.literal('')]),delivery:money,discount:money,total:money,currency:z.literal('RUB'),settings:clientSettings});
 const estimatePrivate = z.strictObject({materialMarkup:z.number().int().min(0).max(100).optional(),
   deliveryCost:money.optional(),overhead:money.optional(),otherCost:money.optional(),incompleteLegacy:z.boolean().optional()});

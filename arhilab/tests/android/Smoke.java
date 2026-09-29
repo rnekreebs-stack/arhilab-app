@@ -155,6 +155,13 @@ public class Smoke extends Instrumentation {
    Class<?> renderer=getTargetContext().getClassLoader().loadClass("ru.arhilab.estimate.F7Pdf");Method pdfMethod=renderer.getDeclaredMethod("render",File.class,JSONObject.class);pdfMethod.setAccessible(true);
    File pdf=(File)pdfMethod.invoke(null,getTargetContext().getCacheDir(),doc);
    byte[] pdfBytes=java.nio.file.Files.readAllBytes(pdf.toPath());if(pdfBytes.length<500||!new String(pdfBytes,0,5,StandardCharsets.US_ASCII).equals("%PDF-"))throw new Exception("F7 PDF invalid");report("F7 native PDF valid bytes="+pdfBytes.length);
+   JSONObject longDoc=new JSONObject(doc.toString());longDoc.put("id",java.util.UUID.randomUUID().toString());JSONArray pages=new JSONArray();
+   for(int n=0;n<120;n++)pages.put(new JSONObject().put("title","Длинное название работы с кириллицей и подробным описанием "+n+" — монтаж конструкций")
+       .put("section","Раздел A").put("unit","м²").put("quantity","2.5000").put("coefficient","1").put("unitPrice","1234.00").put("total","3085.00"));
+   longDoc.getJSONObject("snapshot").put("works",pages);
+   String longPdf=new String(java.nio.file.Files.readAllBytes(((File)pdfMethod.invoke(null,getTargetContext().getCacheDir(),longDoc)).toPath()),StandardCharsets.ISO_8859_1);
+   java.util.regex.Matcher pageMatcher=java.util.regex.Pattern.compile("/Type\\s*/Page\\b").matcher(longPdf);int pageCount=0;while(pageMatcher.find())pageCount++;
+   if(pageCount<2)throw new Exception("F7 long PDF is not multipage: "+pageCount);report("F7 multipage PDF pages="+pageCount);
    backup("f7-after.arhilab");
    result.putString("stream","ARHILAB_UPGRADE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }

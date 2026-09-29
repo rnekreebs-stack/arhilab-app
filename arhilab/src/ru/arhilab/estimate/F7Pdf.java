@@ -69,8 +69,18 @@ final class F7Pdf {
             r.text("Смета: "+data.optString("estimateName"),11,number);r.y+=15;
             JSONArray works=data.getJSONArray("works"),materials=data.getJSONArray("materials");
             r.text("Работы",14,number);
-            r.rows(works,number,settings.optBoolean("showSections",true),doc.getString("type").equals("SUMMARY_ESTIMATE"));
+            boolean summary=doc.getString("type").equals("SUMMARY_ESTIMATE");
+            if(summary){for(int i=0;i<data.getJSONArray("sections").length();i++){
+                JSONObject section=data.getJSONArray("sections").getJSONObject(i);
+                r.text(section.getString("title")+" · работы "+section.getString("workTotal")+" ₽",11,number);
+                if(!settings.optString("materials").equals("hidden"))r.text("Материалы "+section.getString("materialTotal")+" ₽ · раздел "+section.getString("total")+" ₽",10,number);
+            }}else r.rows(works,number,settings.optBoolean("showSections",true),false);
             r.text("Работы: "+data.getString("workTotal")+" ₽",12,number);
+            if(!summary&&settings.optBoolean("showSections",true))for(int i=0;i<data.getJSONArray("sections").length();i++){
+                JSONObject section=data.getJSONArray("sections").getJSONObject(i);
+                r.text("Раздел "+section.getString("title")+": "+section.getString("workTotal")+" ₽"+
+                    (settings.optString("materials").equals("hidden")?"":" · материалы "+section.getString("materialTotal")+" ₽"),10,number);
+            }
             r.text("Наценка на работы: "+data.getString("workMarkup")+" ₽",11,number);
             if(!settings.optString("materials").equals("hidden")){
                 if(settings.optString("materials").equals("detailed")&&!doc.getString("type").equals("SUMMARY_ESTIMATE")){
