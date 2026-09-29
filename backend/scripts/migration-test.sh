@@ -38,15 +38,18 @@ check_stage 16
 check_stage 17
 node --import tsx scripts/verify-schema.ts
 npm run migrate:up
+check_stage 18
 npm run migrate:down
-check_stage 16
+check_stage 17
 npm run migrate:up
+check_stage 18
+npm run migrate:down
 check_stage 17
 npm run migrate:down
 check_stage 16
-npm run migrate:down
-check_stage 15
 npm run migrate:up
+check_stage 18
+ npm run migrate:down
 check_stage 17
 npm run migrate:down
 check_stage 16
@@ -83,5 +86,5 @@ check_stage 1
 npm run migrate:down
 check_stage 0
 npm run migrate:up
-check_stage 17
+check_stage 18
 node --import tsx scripts/verify-schema.ts
