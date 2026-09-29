@@ -27,6 +27,10 @@ public final class F7DocumentsTest {
   JSONObject v2=F7Documents.create(p,estimate,"COMMERCIAL_OFFER",options,UUID.randomUUID().toString(),uid);
   check(v1.getJSONObject("snapshot").toString().equals(before)&&v1.getInt("version")==1&&v2.getInt("version")==2,"final snapshot immutable");
   check(!v1.getJSONObject("snapshot").getString("total").equals(v2.getJSONObject("snapshot").getString("total")),"new version should change");
+  JSONObject other=new JSONObject(p.toString()).put("id",UUID.randomUUID().toString()).put("clientDocuments",new JSONArray());
+  other.remove("estimates");other.remove("legacyEstimateId");LocalEstimates.ensure(other);data.getJSONArray("projects").put(other);
+  JSONObject otherDocument=F7Documents.create(other,other.getString("legacyEstimateId"),"COMMERCIAL_OFFER",options,UUID.randomUUID().toString(),uid,data.getJSONArray("projects"));
+  check(!otherDocument.getString("number").equals(v1.getString("number"))&&!otherDocument.getString("number").equals(v2.getString("number")),"unique number across projects on one device");
   JSONObject restored=DataMigration.migrate(new JSONObject(data.toString()));
   check(restored.getJSONArray("projects").getJSONObject(0).getJSONArray("clientDocuments").length()==2,"backup roundtrip preserves docs");
   System.out.println("F7 local migration, client projection, exact totals, snapshot, idempotency and backup passed");

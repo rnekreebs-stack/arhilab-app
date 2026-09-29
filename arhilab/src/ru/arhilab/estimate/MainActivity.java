@@ -144,7 +144,7 @@ q.put("procurementRequests",assignedRequests);p=q;}else if(!r.equals("admin"))st
  user();before=new JSONObject(db.toString());
  switch(action){
  case "f7List":{admin();JSONObject p=project(a.getString("project"));String estimateId=a.getString("estimateId");F7Documents.estimate(p,estimateId);JSONArray visible=new JSONArray(),all=F7Documents.list(p);for(int i=0;i<all.length();i++){JSONObject d=all.getJSONObject(i);if(estimateId.equals(d.optString("estimateId")))visible.put(new JSONObject(d.toString()));}result.put("documents",visible);break;}
- case "f7Create":{admin();JSONObject p=project(a.getString("project"));JSONObject d=F7Documents.create(p,a.getString("estimateId"),a.getString("type"),a.getJSONObject("settings"),a.getString("requestId"),userId);save();result.put("document",new JSONObject(d.toString()));break;}
+ case "f7Create":{admin();JSONObject p=project(a.getString("project"));JSONObject d=F7Documents.create(p,a.getString("estimateId"),a.getString("type"),a.getJSONObject("settings"),a.getString("requestId"),userId,db.getJSONArray("projects"));save();result.put("document",new JSONObject(d.toString()));break;}
  case "f7Finalize":{admin();JSONObject p=project(a.getString("project"));JSONObject d=F7Documents.finalizeDocument(p,a.getString("id"));save();result.put("document",new JSONObject(d.toString()));break;}
  case "f7Get":{admin();JSONObject p=project(a.getString("project"));JSONObject d=F7Documents.document(p,a.getString("id"));result.put("document",new JSONObject(d.toString()));break;}
  case "f7Pdf":{admin();JSONObject p=project(a.getString("project"));JSONObject d=F7Documents.document(p,a.getString("id"));if(!d.optString("status").equals("final"))throw new Exception("Сначала утвердите документ");

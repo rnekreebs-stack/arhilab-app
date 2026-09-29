@@ -102,6 +102,9 @@ final class F7Documents {
         return safe;
     }
     static JSONObject create(JSONObject project,String estimateId,String type,JSONObject options,String requestId,String userId)throws Exception {
+        return create(project,estimateId,type,options,requestId,userId,new JSONArray().put(project));
+    }
+    static JSONObject create(JSONObject project,String estimateId,String type,JSONObject options,String requestId,String userId,JSONArray projects)throws Exception {
         UUID.fromString(requestId);estimate(project,estimateId);
         JSONArray docs=list(project);int version=1;
         for(int i=0;i<docs.length();i++){
@@ -111,7 +114,14 @@ final class F7Documents {
         }
         String prefix=type.equals("COMMERCIAL_OFFER")?"КП":type.equals("DETAILED_ESTIMATE")?"СМ":"КС";
         String year=String.valueOf(LocalDate.now().getYear());int sequence=1;
-        for(int i=0;i<docs.length();i++)if(docs.getJSONObject(i).optString("number").startsWith(prefix+"-"+year+"-"))sequence++;
+        String stem=prefix+"-"+year+"-";
+        for(int p=0;p<projects.length();p++){
+            JSONArray existing=list(projects.getJSONObject(p));
+            for(int i=0;i<existing.length();i++){
+                String number=existing.getJSONObject(i).optString("number");
+                if(number.startsWith(stem))try{sequence=Math.max(sequence,Integer.parseInt(number.substring(stem.length()))+1);}catch(NumberFormatException ignored){}
+            }
+        }
         JSONObject d=new JSONObject().put("id",UUID.randomUUID().toString()).put("requestId",requestId)
             .put("projectId",project.getString("id")).put("estimateId",estimateId).put("type",type)
             .put("number",String.format(java.util.Locale.ROOT,"%s-%s-%03d",prefix,year,sequence))
