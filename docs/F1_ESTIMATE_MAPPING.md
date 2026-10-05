@@ -1,0 +1,17 @@
+# F1 estimate serialization and preservation map
+
+Legacy Android `projects[]` contains its original estimate inline. Local schema 4 adds `projects[].estimates[]`; the first estimate has deterministic UUIDv3 `UUID.nameUUIDFromBytes("arhilab:legacy-estimate:" + projectId)`. The original fields remain on the project for 0.6.2 editor and backup compatibility. Before each encrypted save, the original fields are mirrored to that estimate. Every additional estimate is independent; delivery, discount and work markup begin at zero. An object with multiple estimates has no implied aggregate total.
+
+| Android 0.6.2 field | Backend field after migration 010 | Sync / preservation |
+| --- | --- | --- |
+| `project.id`, `name`, `address`, `client`, `status` | `projects.id`, `name`, `address`, `client_name`, `project_status` | Direct; UUID retained. |
+| Embedded project `lines`, `materials`, `delivery`, `discount`, `materialMarkup`, `workMarkupPercent` | Local `estimates[legacyEstimateId]` | Additive versioned mirror; old project fields and unknown fields remain untouched. |
+| `legacyEstimateId`, new `estimate.id`, `name`, `workMarkupPercent`, `delivery`, `discount` | `estimates.id`, `name`, `work_markup_percent`, `delivery_amount`, `discount_amount` | Direct decimal strings over sync. Delivery and discount are amounts, not percentages. |
+| Work or manual material row `id` / `syncId`, `name`, `qty`, `unit`, `price` | `estimate_items.id`, `title`, `quantity`, `unit`, `unit_price`, `item_kind` | Snapshot price, not current catalog price. Existing UUID reused; invalid old IDs get deterministic `syncId` while original `id` is kept locally. |
+| Work `coef`, `autoMaterial`, `materialPrice`, `extra`, `extraStatus`, `key` | `coefficient`, `auto_material`, `material_price`, `extra`, `extra_status`, `catalog_key` | Determines 0.6.2 customer total, including unapproved-extra exclusion. |
+| Work `materialTier`, `materials` kit list, `materialNote`, `kitOverrides` | `estimate_items.private_fields`, `privateData` for admin | Whitelisted private projection; manager and worker pull/snapshot redact it. Historical line remains in encrypted local backup. |
+| `purchases`, notes, estimate photo refs, other unsupported catalog metadata | Original encrypted project; Stage 4 immutable archive only for explicit imports | Local-only. UI flags incomplete transfer; no silent deletion or recomputation. |
+| Work `cost`, kit `materialCost`, `deliveryCost`, `overhead`, `otherCost`, material `cost` | `estimate_items.private_fields` or `estimates.private_fields` after 011 | Admin-only `privateData`; manager and worker feed and bootstrap redact it. Server authorization enforces this. |
+| `payments`, `tasks`, `photos`, `estimatePhotos` | Existing Stage 3 payment/task and Stage 5 file endpoints only where semantics match | Preserved in local backup. Payment currency missing in 0.6.2 still blocks Stage 4 import; photos need the controlled Stage 5 upload. |
+
+Canonical customer amount follows existing `core.js`: round each eligible work `price × qty × coef`; add rounded material kit `materialPrice × qty` and manual `price × qty`; add rounded work markup; add delivery amount; subtract discount amount. `workMarkupPercent = 0` for old data leaves the previous total unchanged. Backend stores inputs; clients compute totals from the same snapshots and the versioned formula. Business fields that cannot pass strict validation remain local and must produce a visible blocking sync state, never be silently omitted.

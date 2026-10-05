@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const {calc}=require('../assets/core.js');
+const file=process.argv[2];
+if(!file)throw Error('Provide the Java migration financial fixture path');
+const {before,after}=JSON.parse(fs.readFileSync(file,'utf8'));
+assert.equal(calc(before).total,470.1);
+assert.equal(calc(after).total,calc(before).total);
+assert.equal(after.workMarkupPercent,'0');
+assert.equal(after.lines[0].id,before.lines[0].id);
+assert.deepEqual(after.materials,before.materials.map((row,index)=>({...row,syncId:after.materials[index].syncId})));
+console.log('PASS: Java 0.6.2 migration preserves work, materials, delivery, discount and golden total');

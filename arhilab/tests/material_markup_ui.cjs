@@ -29,7 +29,7 @@ const {chromium}=require('playwright');
   });
   await p.goto('file://'+path.resolve(__dirname,'../assets/index.html'));
   await p.fill('[name=login]','admin');await p.fill('[name=password]','test-password');await p.click('button[type=submit]');
-  await p.getByText('Объект',{exact:true}).first().click();
+  await p.locator('#app .card[role="button"]').filter({hasText:'Объект'}).click();
   await p.locator('.tabs').getByText('Материалы').click();
   assert.equal(await p.locator('#materialMarkup').inputValue(),'8');
   assert.match(await p.locator('#detail').innerText(),/864,00/);

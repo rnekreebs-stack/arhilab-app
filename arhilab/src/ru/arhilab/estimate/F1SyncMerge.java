@@ -1,0 +1,272 @@
+package ru.arhilab.estimate;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+/** Applies a Stage 3/4 change to the encrypted local model without replacing legacy-only fields. */
+final class F1SyncMerge {
+    private F1SyncMerge() {}
+
+    private static JSONObject find(JSONArray rows, String id) throws Exception {
+        for (int i = 0; i < rows.length(); i++) {
+            JSONObject row = rows.getJSONObject(i);
+            if (id.equals(row.optString("id"))) return row;
+        }
+        return null;
+    }
+
+    private static void remove(JSONArray rows, String id) throws Exception {
+        for (int i = 0; i < rows.length(); i++)
+            if (id.equals(rows.getJSONObject(i).optString("id"))) { rows.remove(i); return; }
+    }
+
+    static void apply(JSONObject db, JSONObject change) throws Exception {
+        String type = change.getString("entityType"), id = change.getString("entityId");
+        if (!type.equals("project") && !type.equals("estimate") && !type.equals("estimateItem") && !type.equals("payment") && !type.equals("expense") && !type.equals("stage") && !type.equals("progressEntry") && !type.equals("task") && !type.equals("procurementRequest") && !type.equals("procurementReceipt") && !type.equals("clientDocument")) return;
+        JSONObject sync = F1SyncLedger.state(db);
+        String key = type + ":" + id;
+        JSONArray jobs = sync.getJSONArray("operations");
+        for (int i = 0; i < jobs.length(); i++) {
+            JSONObject job = jobs.getJSONObject(i);
+            if (job.getString("entityId").equals(id) && job.getString("entityType").equals(type))
+                return; // Retain the local proposal. Conflict resolution remains explicit.
+        }
+        JSONObject snapshot = change.getJSONObject("snapshot");
+        boolean deleted = !snapshot.isNull("deletedAt") && snapshot.has("deletedAt");
+        JSONArray projects = db.getJSONArray("projects");
+        if (type.equals("project")) {
+            if (deleted) throw new IllegalStateException("Удалённый объект требует ручного решения перед локальным удалением");
+            JSONObject p = find(projects, id);
+            if (p == null) {
+                p = new JSONObject().put("id", id).put("materialMarkup", 8).put("workMarkupPercent", "0");
+                for (String field : new String[]{"lines","materials","tasks","payments","expenses","procurementRequests","procurementReceipts","notes","photos","estimatePhotos"})
+                    p.put(field, new JSONArray());
+                projects.put(p);
+            }
+            p.put("name", snapshot.getString("name"))
+                .put("address", snapshot.optString("address", ""))
+                .put("client", snapshot.optString("client", ""))
+                .put("status", snapshot.optString("status", "Новый"));
+            LocalEstimates.ensure(p);
+        } else if (type.equals("estimate")) {
+            JSONObject p = find(projects, snapshot.getString("projectId"));
+            if (p == null) throw new IllegalStateException("Отсутствует объект сметы");
+            LocalEstimates.ensure(p);
+            boolean legacy = id.equals(LocalEstimates.legacyId(p.getString("id")));
+            if (deleted) {
+                if (legacy) throw new IllegalStateException("Исходную смету нельзя удалить без переноса локальных данных");
+                remove(p.getJSONArray("estimates"), id);
+            } else {
+                JSONObject e = find(p.getJSONArray("estimates"), id);
+                if (e == null) {
+                    e = new JSONObject().put("id", id).put("projectId", p.getString("id"))
+                        .put("legacy", legacy).put("lines", new JSONArray()).put("materials", new JSONArray());
+                    p.getJSONArray("estimates").put(e);
+                }
+                e.put("name", snapshot.getString("name"))
+                    .put("workMarkupPercent", snapshot.optString("workMarkupPercent", "0"))
+                    .put("delivery", snapshot.optString("delivery", "0"))
+                    .put("discount", snapshot.optString("discount", "0"))
+                    .put("serverRevision", change.getInt("revision"));
+                if (!snapshot.isNull("currency") && snapshot.has("currency")) e.put("currency", snapshot.getString("currency"));
+                JSONObject privateData = snapshot.optJSONObject("privateData");
+                if (privateData != null) {
+                    if (privateData.optBoolean("incompleteLegacy")) sync.put("missingPrivateLegacy", true);
+                    for (String field : new String[]{"materialMarkup", "deliveryCost", "overhead", "otherCost"})
+                        if (privateData.has(field)) e.put(field, privateData.get(field));
+                }
+                if (legacy) {
+                    p.put("workMarkupPercent", e.get("workMarkupPercent"))
+                        .put("delivery", e.get("delivery")).put("discount", e.get("discount"));
+                    if (privateData != null) for (String field : new String[]{"materialMarkup", "deliveryCost", "overhead", "otherCost"})
+                        if (privateData.has(field)) p.put(field, privateData.get(field));
+                    LocalEstimates.ensure(p);
+                }
+            }
+        } else if (type.equals("clientDocument")) {
+            if(deleted)throw new IllegalStateException("Финальный документ нельзя удалить без ручного решения");
+            JSONObject p=find(projects,snapshot.getString("projectId"));
+            if(p==null)throw new IllegalStateException("Объект документа отсутствует");
+            F7Documents.estimate(p,snapshot.getString("estimateId"));
+            JSONArray docs=F7Documents.list(p);JSONObject d=find(docs,id);
+            if(d==null){d=new JSONObject().put("id",id);docs.put(d);}
+            else if(d.optString("status").equals("final")&&!d.getJSONObject("snapshot").toString().equals(snapshot.getJSONObject("snapshot").toString()))
+                throw new IllegalStateException("Снимок финального документа изменился");
+            d.put("projectId",p.getString("id")).put("estimateId",snapshot.getString("estimateId"))
+             .put("type",snapshot.getString("type")).put("number",snapshot.getString("number"))
+             .put("version",snapshot.getInt("version")).put("status",snapshot.getString("status"))
+             .put("requestId",snapshot.getString("requestId"))
+             .put("snapshot",new JSONObject(snapshot.getJSONObject("snapshot").toString()))
+             .put("createdAt",snapshot.optString("createdAt",java.time.Instant.now().toString()))
+             .put("finalizedAt",snapshot.optString("finalizedAt",""))
+             .put("serverRevision",change.getInt("revision"));
+        } else if (type.equals("stage") || type.equals("progressEntry")) {
+            JSONObject p=find(projects,snapshot.getString("projectId"));
+            if(p==null)throw new IllegalStateException("Отсутствует объект журнала выполнения");
+            LocalEstimates.ensure(p);
+            JSONObject e=find(p.getJSONArray("estimates"),snapshot.getString("estimateId"));
+            if(e==null)throw new IllegalStateException("Отсутствует смета журнала выполнения");
+            F4Execution.ensure(e);
+            JSONArray rows=e.getJSONArray(type.equals("stage")?"executionStages":"progressEntries");
+            if(deleted)remove(rows,id);
+            else {
+                JSONObject entry=find(rows,id);
+                if(entry==null){entry=new JSONObject().put("id",id);rows.put(entry);}
+                if(type.equals("stage")){
+                    entry.put("name",snapshot.getString("name"))
+                        .put("description",snapshot.optString("description",""))
+                        .put("position",snapshot.optInt("position",0));
+                } else {
+                    F4Execution.item(e,snapshot.getString("estimateItemId"));
+                    entry.put("estimateItemId",snapshot.getString("estimateItemId"))
+                        .put("quantity",snapshot.get("quantity"))
+                        .put("businessDate",snapshot.getString("businessDate"))
+                        .put("note",snapshot.optString("note",""))
+                        .put("createdBy",snapshot.getString("createdBy"));
+                    if(snapshot.has("historicalStageId")&&!snapshot.isNull("historicalStageId"))
+                        entry.put("historicalStageId",snapshot.getString("historicalStageId"));
+                    else entry.put("historicalStageId","");
+                }
+            }
+        } else if(type.equals("procurementRequest")||type.equals("procurementReceipt")) {
+            JSONObject p=find(projects,snapshot.optString("projectId",""));
+            if(p==null&&deleted){for(int i=0;i<projects.length();i++){
+                JSONObject candidate=projects.getJSONObject(i);
+                F6Procurement.ensure(candidate);
+                JSONArray source=candidate.getJSONArray(type.equals("procurementRequest")?"procurementRequests":"procurementReceipts");
+                try{F6Procurement.find(source,id);p=candidate;break;}catch(IllegalArgumentException ignored){}
+            }}
+            if(p==null)throw new IllegalStateException("Отсутствует объект снабжения");
+            F6Procurement.ensure(p);
+            JSONArray rows=p.getJSONArray(type.equals("procurementRequest")?"procurementRequests":"procurementReceipts");
+            if(deleted)remove(rows,id);
+            else {
+                JSONObject record;
+                try{record=F6Procurement.find(rows,id);}catch(IllegalArgumentException absent){record=new JSONObject().put("id",id);rows.put(record);}
+                if(type.equals("procurementRequest")){
+                    for(String field:new String[]{"title","unit","requestedQuantity","status","note"})record.put(field,snapshot.get(field));
+                    for(String field:new String[]{"estimateId","stageId","estimateItemId","catalogSku","neededByDate","assigneeId","createdBy"}){
+                        if(snapshot.has(field)&&!snapshot.isNull(field))record.put(field,snapshot.get(field));else record.remove(field);
+                    }
+                } else {
+                    for(String field:new String[]{"requestId","quantity","businessDate","note","createdBy"})record.put(field,snapshot.get(field));
+                }
+            }
+        } else if(type.equals("task")) {
+            JSONObject p=find(projects,snapshot.optString("projectId",""));
+            if(p==null && !deleted)throw new IllegalStateException("Отсутствует объект задачи");
+            if(p==null){for(int i=0;i<projects.length();i++){
+                JSONObject candidate=projects.getJSONObject(i);
+                if(candidate.optJSONArray("tasks")!=null&&find(candidate.getJSONArray("tasks"),id)!=null){p=candidate;break;}
+            }}
+            if(p!=null){F5Tasks.ensure(p);JSONArray tasks=p.getJSONArray("tasks");
+                if(deleted)remove(tasks,id);
+                else {
+                    JSONObject task=find(tasks,id);
+                    if(task==null){task=new JSONObject().put("id",id).put("progress",0);tasks.put(task);}
+                    String status=snapshot.getString("status");
+                    task.put("name",snapshot.getString("title"))
+                        .put("comment",snapshot.optString("description",""))
+                        .put("taskStatus",status)
+                        .put("status",status.equals("done")?"Завершено":status.equals("in_progress")?"В работе":"Не начато")
+                        .put("done",status.equals("done"))
+                        .put("priority",snapshot.optString("priority","normal"))
+                        .put("planDate",snapshot.isNull("dueDate")?"":snapshot.getString("dueDate"));
+                    for(String field:new String[]{"assigneeId","estimateId","stageId","estimateItemId","createdBy","completedAt"})
+                        if(snapshot.has(field)&&!snapshot.isNull(field))task.put(field,snapshot.get(field));
+                        else task.remove(field);
+                }
+            }
+        } else if (type.equals("expense")) {
+            JSONObject p = find(projects, snapshot.getString("projectId"));
+            if (p == null) throw new IllegalStateException("Отсутствует объект расхода");
+            JSONArray expenses=p.optJSONArray("expenses");
+            if (expenses==null) {expenses=new JSONArray();p.put("expenses",expenses);}
+            if (deleted) remove(expenses,id);
+            else {
+                JSONObject expense=find(expenses,id);
+                if (expense==null) {expense=new JSONObject().put("id",id);expenses.put(expense);}
+                expense.put("category",snapshot.getString("category"))
+                    .put("amount",snapshot.get("amount"))
+                    .put("currency",snapshot.getString("currency"))
+                    .put("date",snapshot.getString("businessDate"))
+                    .put("description",snapshot.getString("description"))
+                    .put("note",snapshot.optString("note",""));
+                if(snapshot.has("createdAt")&&!snapshot.isNull("createdAt"))expense.put("createdAt",snapshot.get("createdAt"));
+                if(snapshot.has("updatedAt")&&!snapshot.isNull("updatedAt"))expense.put("updatedAt",snapshot.get("updatedAt"));
+                if (snapshot.has("estimateId") && !snapshot.isNull("estimateId")) expense.put("estimateId",snapshot.getString("estimateId"));
+                else expense.remove("estimateId");
+                if(snapshot.has("procurementRequestId")&&!snapshot.isNull("procurementRequestId"))
+                    expense.put("procurementRequestId",snapshot.getString("procurementRequestId"));
+                else expense.remove("procurementRequestId");
+            }
+        } else if (type.equals("payment")) {
+            JSONObject p = find(projects, snapshot.getString("projectId"));
+            if (p == null) throw new IllegalStateException("Отсутствует объект платежа");
+            JSONArray payments = p.getJSONArray("payments");
+            if (deleted) remove(payments, id);
+            else {
+                JSONObject payment = find(payments, id);
+                if (payment == null) {payment = new JSONObject().put("id", id);payments.put(payment);}
+                payment.put("amount", snapshot.get("amount"))
+                    .put("paid", snapshot.isNull("paidAmount") ? snapshot.get("amount") : snapshot.get("paidAmount"))
+                    .put("currency", snapshot.getString("currency"))
+                    .put("date", snapshot.optString("businessDate", ""))
+                    .put("note", snapshot.optString("comment", ""))
+                    .put("type", snapshot.optString("paymentType", ""));
+                if(!snapshot.isNull("kind")&&snapshot.has("kind"))payment.put("kind",snapshot.getString("kind"));
+                for (String field : new String[]{"estimateId", "planDate", "actualDate", "paidAt"})
+                    if (snapshot.has(field) && !snapshot.isNull(field)) payment.put(field, snapshot.get(field));
+                    else payment.remove(field);
+            }
+        } else {
+            String estimateId = snapshot.getString("estimateId");
+            JSONObject owner = null, estimate = null;
+            for (int i = 0; i < projects.length(); i++) {
+                JSONObject p = projects.getJSONObject(i);
+                JSONArray candidates = p.optJSONArray("estimates");
+                if (candidates == null) continue;
+                JSONObject candidate = find(candidates, estimateId);
+                if (candidate != null) { owner = p; estimate = candidate; break; }
+            }
+            if (estimate == null || owner == null) throw new IllegalStateException("Отсутствует смета строки");
+            String kind = snapshot.getString("kind");
+            if (!kind.equals("work") && !kind.equals("material")) throw new IllegalArgumentException("Неизвестный вид строки");
+            boolean legacy = estimate.optBoolean("legacy");
+            JSONArray rows = (legacy ? owner : estimate).getJSONArray(kind.equals("work") ? "lines" : "materials");
+            if (deleted) remove(rows, id);
+            else {
+                JSONObject item = find(rows, id);
+                if (item == null) {
+                    if (snapshot.optJSONObject("privateData") == null)
+                        sync.put("missingPrivateLegacy", true);
+                    item = new JSONObject().put("id", id); rows.put(item);
+                }
+                item.put("syncId", id).put("name", snapshot.getString("title"))
+                    .put("qty", snapshot.get("quantity")).put("price", snapshot.get("price"))
+                    .put("unit", snapshot.optString("unit", ""));
+                if(snapshot.has("stageId")&&!snapshot.isNull("stageId"))item.put("stageId",snapshot.getString("stageId"));
+                else item.remove("stageId");
+                if (kind.equals("work")) {
+                    item.put("coef", snapshot.optString("coefficient", "1"))
+                        .put("autoMaterial", snapshot.optBoolean("autoMaterial"))
+                        .put("materialPrice", snapshot.optString("materialPrice", "0"))
+                        .put("extra", snapshot.optBoolean("extra"))
+                        .put("extraStatus", snapshot.optString("extraStatus", ""));
+                }
+                if (!snapshot.isNull("catalogKey") && snapshot.has("catalogKey"))
+                    item.put("key", snapshot.getString("catalogKey"));
+                JSONObject privateData = snapshot.optJSONObject("privateData");
+                if (privateData != null) {
+                    for (String field : new String[]{"cost", "materialCost", "materialTier", "materialNote", "materials", "kitOverrides"})
+                        if (privateData.has(field)) item.put(field, privateData.get(field));
+                }
+            }
+            if (legacy) LocalEstimates.ensure(owner);
+        }
+        sync.getJSONObject("revisions").put(key, change.getInt("revision"));
+        JSONObject projected = F1SyncLedger.projection(db);
+        if (projected.has(key)) sync.getJSONObject("shadow").put(key, projected.getJSONObject(key));
+        else sync.getJSONObject("shadow").remove(key);
+    }
+}

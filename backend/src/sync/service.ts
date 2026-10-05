@@ -1,0 +1,362 @@
+import { createHash, randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
+import { pool } from '../database/pool.js';
+import { HttpError } from '../middleware/errors.js';
+import { assertCurrentAdmin, transaction, type Identity } from '../services/security.js';
+import { parsePayload, specification, visibleSnapshot, type EntityType } from './registry.js';
+import { canonical } from './canonical.js';
+import { catalogSkuIds } from './catalog-skus.js';
+import {projectClient,type EstimateMeta,type EstimateRow,type Settings} from '../f7/projection.js';
+import type { SyncOperation } from './validation.js';
+
+export type SyncResult = {
+  operationId:string;
+  status:'applied'|'duplicate'|'conflict'|'rejected';
+  errorClass?:'validation'|'authorization'|'conflict'|'unsupported';
+  code?:string;
+  resultingRevision?:number;
+  currentRevision?:number;
+  sequence?:string;
+  originalStatus?:string;
+  conflictId?:string;
+};
+function requestHash(op: SyncOperation) { return createHash('sha256').update(canonical(op)).digest('hex'); }
+const rejected=(op:SyncOperation,errorClass:NonNullable<SyncResult['errorClass']>,code:string):SyncResult=>({operationId:op.operationId,status:'rejected',errorClass,code});
+const conflict=(op:SyncOperation,currentRevision:number):SyncResult=>({operationId:op.operationId,status:'conflict',errorClass:'conflict',code:'stale_revision',currentRevision});
+
+async function referencesValid(client:PoolClient,org:string,payload:Record<string,unknown>) {
+  for (const [key,table] of [['projectId','projects'],['estimateId','estimates'],['estimateItemId','estimate_items'],['stageId','stages'],['assigneeId','users']] as const) {
+    const id=payload[key]; if (id === undefined || id === null) continue;
+    const where=table==='users'?' AND active':' AND deleted_at IS NULL';
+    const check=await client.query(`SELECT id FROM ${table} WHERE organization_id=$1 AND id=$2${where}`,[org,id]);
+    if (!check.rowCount) return false;
+  }
+  return true;
+}
+function snapshot(row:Record<string,unknown>,fields:Record<string,string>) {
+  const state:Record<string,unknown>={id:row.id,revision:Number(row.revision),deletedAt:row.deleted_at};
+  for (const [name,column] of Object.entries(fields)) state[name]=row[column];
+  return state;
+}
+function cents(value:unknown):bigint {
+  const [whole='0',fraction='']=String(value).split('.');
+  return BigInt(whole)*100n+BigInt((fraction+'00').slice(0,2));
+}
+async function mutation(client:PoolClient,ctx:Identity,op:SyncOperation):Promise<{result:SyncResult;state?:Record<string,unknown>;table?:string}> {
+  if(op.entityType==='photo'||op.entityType==='document') return {result:rejected(op,'unsupported','file_api_required')};
+  if(op.entityType==='clientDocument'&&op.operationType==='delete')return {result:rejected(op,'validation','document_deletion_not_supported')};
+  const spec=specification(op.entityType);
+  if (!spec) return {result:rejected(op,'unsupported','unsupported_entity')};
+  if (!['create','update','delete'].includes(op.operationType)) return {result:rejected(op,'unsupported','unsupported_operation')};
+  const payload=parsePayload(op.entityType as EntityType,op.operationType,op.payload);
+  if (!payload) return {result:rejected(op,'validation','invalid_payload')};
+  if (!await referencesValid(client,ctx.organizationId,payload)) return {result:rejected(op,'validation','invalid_reference')};
+  if(op.entityType==='clientDocument'&&op.operationType!=='delete') {
+    if(op.operationType==='create'){
+      const estimate=await client.query<EstimateMeta>(`SELECT e.name,p.name AS project_name,p.address,p.client_name,e.work_markup_percent::text,e.delivery_amount::text,e.discount_amount::text,e.currency
+        FROM estimates e JOIN projects p ON p.id=e.project_id AND p.organization_id=e.organization_id
+        WHERE e.organization_id=$1 AND e.id=$2 AND e.project_id=$3 AND e.deleted_at IS NULL AND p.deleted_at IS NULL`,[ctx.organizationId,payload.estimateId,payload.projectId]);
+      if(!estimate.rows[0])return {result:rejected(op,'validation','invalid_document_context')};
+      const items=await client.query<EstimateRow>(`SELECT i.title,i.quantity::text,i.unit,i.unit_price::text,i.coefficient::text,i.item_kind,i.auto_material,i.material_price::text,i.extra,i.extra_status,s.name AS stage_name
+        FROM estimate_items i LEFT JOIN stages s ON s.id=i.stage_id AND s.organization_id=i.organization_id
+        WHERE i.organization_id=$1 AND i.estimate_id=$2 AND i.deleted_at IS NULL ORDER BY i.created_at,i.id`,[ctx.organizationId,payload.estimateId]);
+      try {const calculated=projectClient(estimate.rows[0],items.rows,payload.settings as Settings);
+        if(calculated.total!==(payload.snapshot as {total:string}).total)return {result:rejected(op,'validation','document_total_mismatch')};
+        payload.snapshot=calculated;
+      }catch{return {result:rejected(op,'validation','invalid_document_projection')};}
+      const number=String(payload.number),collision=await client.query('SELECT 1 FROM client_documents WHERE organization_id=$1 AND (document_number=$2 OR (estimate_id=$3 AND document_type=$4 AND version=$5) OR idempotency_key=$6)',
+        [ctx.organizationId,number,payload.estimateId,payload.type,payload.version,payload.requestId]);
+      if(collision.rowCount)return {result:rejected(op,'conflict','document_number_or_version_conflict')};
+      const prefix=number.split('-'),year=Number(prefix[1]),sequence=Number(prefix[2]);
+      await client.query(`INSERT INTO client_document_sequences(organization_id,document_type,document_year,last_number) VALUES($1,$2,$3,$4)
+        ON CONFLICT (organization_id,document_type,document_year) DO UPDATE SET last_number=greatest(client_document_sequences.last_number,excluded.last_number)`,
+        [ctx.organizationId,payload.type,year,sequence]);
+      payload.createdBy=ctx.userId;
+      payload.finalizedAt=payload.status==='final'?new Date().toISOString():null;
+    }else{
+      if(Object.keys(payload).some(k=>!['status'].includes(k))||payload.status!=='final')return {result:rejected(op,'validation','document_snapshot_immutable')};
+      payload.finalizedAt=new Date().toISOString();
+    }
+  }
+  const found=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE id=$1 FOR NO KEY UPDATE`,[op.entityId]);
+  const current=found.rows[0];
+  if (current && current.organization_id !== ctx.organizationId) return {result:rejected(op,'authorization','entity_not_available')};
+  if(op.entityType==='clientDocument'&&current){
+    if(op.operationType==='delete')return {result:rejected(op,'validation','document_deletion_not_supported')};
+    if(current.status==='final')return {result:rejected(op,'validation','document_snapshot_immutable')};
+  }
+  if(op.entityType==='stage' && op.operationType!=='delete') {
+    if(current && ['projectId','estimateId'].some(key=>payload[key]!==undefined&&payload[key]!==current[spec.fields[key]!]))
+      return {result:rejected(op,'validation','stage_owner_immutable')};
+    const projectId=payload.projectId??current?.project_id, estimateId=payload.estimateId??current?.estimate_id;
+    if(estimateId) {
+      const owner=await client.query('SELECT 1 FROM estimates WHERE organization_id=$1 AND id=$2 AND project_id=$3 AND deleted_at IS NULL',[ctx.organizationId,estimateId,projectId]);
+      if(!owner.rowCount)return {result:rejected(op,'validation','invalid_stage_context')};
+    }
+  }
+  if(op.entityType==='stage' && op.operationType==='delete') {
+    const assigned=await client.query('SELECT 1 FROM estimate_items WHERE organization_id=$1 AND stage_id=$2 AND deleted_at IS NULL LIMIT 1',[ctx.organizationId,op.entityId]);
+    if(assigned.rowCount)return {result:rejected(op,'validation','stage_has_items')};
+  }
+  if(op.entityType==='task' && op.operationType!=='delete') {
+    if(current && payload.projectId!==undefined && payload.projectId!==current.project_id)
+      return {result:rejected(op,'validation','task_project_immutable')};
+    const projectId=payload.projectId??current?.project_id;
+    const estimateId=payload.estimateId===undefined?current?.estimate_id:payload.estimateId;
+    const stageId=payload.stageId===undefined?current?.stage_id:payload.stageId;
+    const itemId=payload.estimateItemId===undefined?current?.estimate_item_id:payload.estimateItemId;
+    if((stageId||itemId)&&!estimateId) return {result:rejected(op,'validation','invalid_task_context')};
+    if(estimateId) {
+      const owner=await client.query('SELECT 1 FROM estimates WHERE organization_id=$1 AND project_id=$2 AND id=$3 AND deleted_at IS NULL',
+        [ctx.organizationId,projectId,estimateId]);
+      if(!owner.rowCount)return {result:rejected(op,'validation','invalid_task_context')};
+    }
+    for(const [id,table,key] of [[stageId,'stages','stageId'],[itemId,'estimate_items','estimateItemId']] as const) {
+      if(!id)continue;
+      const historical=current && payload[key]===undefined && id===current[key==='stageId'?'stage_id':'estimate_item_id'];
+      const owner=await client.query(`SELECT 1 FROM ${table} WHERE organization_id=$1 AND estimate_id=$2 AND id=$3${historical?'':' AND deleted_at IS NULL'}`,
+        [ctx.organizationId,estimateId,id]);
+      if(!owner.rowCount)return {result:rejected(op,'validation','invalid_task_context')};
+    }
+    const oldStatus=current?.status;
+    const nextStatus=payload.status??oldStatus;
+    if(op.operationType==='create')payload.createdBy=ctx.userId;
+    if(nextStatus==='done' && oldStatus!=='done')payload.completedAt=new Date().toISOString();
+    if(nextStatus!=='done' && oldStatus==='done')payload.completedAt=null;
+  }
+  if(op.entityType==='procurementRequest') {
+    if(op.operationType==='delete') {
+      const history=await client.query('SELECT 1 FROM procurement_receipts WHERE organization_id=$1 AND request_id=$2 LIMIT 1',[ctx.organizationId,op.entityId]);
+      if(history.rowCount)return {result:rejected(op,'validation','request_has_receipt_history')};
+      const expenses=await client.query('SELECT 1 FROM expenses WHERE organization_id=$1 AND procurement_request_id=$2 LIMIT 1',[ctx.organizationId,op.entityId]);
+      if(expenses.rowCount)return {result:rejected(op,'validation','request_has_expense_history')};
+    } else {
+      if(current && ['projectId','estimateId','stageId','estimateItemId','catalogSku','createdBy'].some(key=>
+        payload[key]!==undefined && payload[key]!==current[spec.fields[key]!]))
+        return {result:rejected(op,'validation','procurement_owner_immutable')};
+      const projectId=payload.projectId??current?.project_id,estimateId=payload.estimateId??current?.estimate_id;
+      const stageId=payload.stageId??current?.stage_id,itemId=payload.estimateItemId??current?.estimate_item_id;
+      if((stageId||itemId)&&!estimateId)return {result:rejected(op,'validation','invalid_procurement_context')};
+      if(estimateId){
+        const owner=await client.query('SELECT 1 FROM estimates WHERE organization_id=$1 AND id=$2 AND project_id=$3 AND deleted_at IS NULL',[ctx.organizationId,estimateId,projectId]);
+        if(!owner.rowCount)return {result:rejected(op,'validation','invalid_procurement_context')};
+      }
+      for(const [id,table] of [[stageId,'stages'],[itemId,'estimate_items']] as const){
+        if(!id)continue;
+        const owner=await client.query(`SELECT 1 FROM ${table} WHERE organization_id=$1 AND estimate_id=$2 AND id=$3 AND deleted_at IS NULL`,[ctx.organizationId,estimateId,id]);
+        if(!owner.rowCount)return {result:rejected(op,'validation','invalid_procurement_context')};
+      }
+      const sku=payload.catalogSku??current?.catalog_sku;
+      if(sku && (typeof sku!=='string'||!catalogSkuIds.has(sku)))return {result:rejected(op,'validation','unknown_catalog_sku')};
+      if(op.operationType==='create')payload.createdBy=ctx.userId;
+    }
+  }
+  if(op.entityType==='procurementReceipt' && op.operationType!=='delete') {
+    if(current && ['projectId','requestId','createdBy'].some(key=>payload[key]!==undefined && payload[key]!==current[spec.fields[key]!]))
+      return {result:rejected(op,'validation','receipt_owner_immutable')};
+    const projectId=payload.projectId??current?.project_id,requestId=payload.requestId??current?.request_id;
+    const request=await client.query<{requested_quantity:string;status:string}>(
+      'SELECT requested_quantity,status FROM procurement_requests WHERE organization_id=$1 AND project_id=$2 AND id=$3 AND deleted_at IS NULL',
+      [ctx.organizationId,projectId,requestId]);
+    if(!request.rows[0])return {result:rejected(op,'validation','invalid_procurement_context')};
+    if(request.rows[0].status==='cancelled')return {result:rejected(op,'validation','request_cancelled')};
+    const total=await client.query<{quantity:string}>(
+      'SELECT COALESCE(sum(quantity),0)::text AS quantity FROM procurement_receipts WHERE organization_id=$1 AND request_id=$2 AND id<>$3 AND deleted_at IS NULL',
+      [ctx.organizationId,requestId,op.entityId]);
+    const units=(v:unknown)=>{const [whole='0',fraction='']=String(v).split('.');return BigInt(whole)*10000n+BigInt((fraction+'0000').slice(0,4));};
+    if(units(total.rows[0]?.quantity??'0')+units(payload.quantity??current?.quantity)>units(request.rows[0].requested_quantity))
+      return {result:rejected(op,'validation','receipt_exceeds_requested')};
+    if(op.operationType==='create')payload.createdBy=ctx.userId;
+  }
+  if(op.entityType==='estimateItem') {
+    if(current && payload.estimateId!==undefined && payload.estimateId!==current.estimate_id)
+      return {result:rejected(op,'validation','item_owner_immutable')};
+    if(op.operationType==='delete') {
+      const history=await client.query('SELECT 1 FROM progress_entries WHERE organization_id=$1 AND estimate_item_id=$2 LIMIT 1',[ctx.organizationId,op.entityId]);
+      if(history.rowCount)return {result:rejected(op,'validation','item_has_progress_history')};
+    }
+    if(payload.stageId) {
+      if((payload.kind??current?.item_kind)!=='work')return {result:rejected(op,'validation','stage_requires_work')};
+      const owner=await client.query('SELECT 1 FROM stages WHERE organization_id=$1 AND id=$2 AND estimate_id=$3 AND deleted_at IS NULL',
+        [ctx.organizationId,payload.stageId,payload.estimateId??current?.estimate_id]);
+      if(!owner.rowCount)return {result:rejected(op,'validation','invalid_stage_context')};
+    }
+  }
+  if(op.entityType==='progressEntry' && op.operationType!=='delete') {
+    if(current && ['projectId','estimateId','estimateItemId','historicalStageId','createdBy'].some(key=>
+      payload[key]!==undefined&&payload[key]!==current[spec.fields[key]!]))
+      return {result:rejected(op,'validation','progress_owner_immutable')};
+    const projectId=payload.projectId??current?.project_id, estimateId=payload.estimateId??current?.estimate_id;
+    const itemId=payload.estimateItemId??current?.estimate_item_id;
+    const item=await client.query<{quantity:string;stage_id:string|null;item_kind:string}>(`SELECT i.quantity,i.stage_id,i.item_kind FROM estimate_items i
+      JOIN estimates e ON e.id=i.estimate_id AND e.organization_id=i.organization_id
+      WHERE i.organization_id=$1 AND i.id=$2 AND i.estimate_id=$3 AND e.project_id=$4
+        AND i.deleted_at IS NULL AND e.deleted_at IS NULL`,[ctx.organizationId,itemId,estimateId,projectId]);
+    if(!item.rows[0])return {result:rejected(op,'validation','invalid_progress_context')};
+    if(item.rows[0].item_kind!=='work')return {result:rejected(op,'validation','progress_requires_work')};
+    const sum=await client.query<{completed:string}>(`SELECT COALESCE(sum(quantity),0)::text AS completed FROM progress_entries
+      WHERE organization_id=$1 AND estimate_item_id=$2 AND deleted_at IS NULL AND id<>$3`,[ctx.organizationId,itemId,op.entityId]);
+    const units=(value:unknown)=>{const [whole='0',fraction='']=String(value).split('.');return BigInt(whole)*10000n+BigInt((fraction+'0000').slice(0,4));};
+    if(units(payload.quantity??current?.quantity)+units(sum.rows[0]?.completed??'0')>units(item.rows[0].quantity)
+      && (op.operationType==='create'||payload.quantity!==undefined && units(payload.quantity)>units(current?.quantity)))
+      return {result:rejected(op,'validation','progress_exceeds_plan')};
+    if(op.operationType==='create') {
+      payload.createdBy=ctx.userId;
+      payload.historicalStageId=item.rows[0].stage_id;
+    }
+  }
+  if (op.entityType==='payment' && op.operationType!=='delete') {
+    const amount=payload.amount??current?.amount;
+    const paid=payload.paidAmount??current?.paid_amount;
+    if (amount!==undefined && cents(amount)<=0n || paid!==undefined && paid!==null && cents(paid)>cents(amount))
+      return {result:rejected(op,'validation','invalid_payment_amount')};
+    const estimateId=payload.estimateId===undefined?current?.estimate_id:payload.estimateId;
+    if (estimateId) {
+      const owner=await client.query<{project_id:string;currency:string|null}>(
+        'SELECT project_id,currency FROM estimates WHERE organization_id=$1 AND id=$2 AND deleted_at IS NULL',
+        [ctx.organizationId,estimateId]);
+      const estimate=owner.rows[0];
+      if (!estimate || estimate.project_id!==(payload.projectId??current?.project_id) ||
+          !estimate.currency || estimate.currency.trim()!==(payload.currency??current?.currency) ||
+          (payload.kind??current?.payment_kind)!=='income')
+        return {result:rejected(op,'validation','invalid_payment_context')};
+    }
+  }
+  if (op.entityType==='expense' && op.operationType!=='delete') {
+    if(current && payload.projectId!==undefined && payload.projectId!==current.project_id)
+      return {result:rejected(op,'validation','expense_project_immutable')};
+    if(current && payload.procurementRequestId!==undefined && payload.procurementRequestId!==current.procurement_request_id)
+      return {result:rejected(op,'validation','expense_procurement_link_immutable')};
+    const ownerId=payload.estimateId===undefined?current?.estimate_id:payload.estimateId;
+    if(ownerId) {
+      const owner=await client.query<{project_id:string}>(
+        'SELECT project_id FROM estimates WHERE organization_id=$1 AND id=$2 AND deleted_at IS NULL',
+        [ctx.organizationId,ownerId]);
+      if(!owner.rows[0] || owner.rows[0].project_id!==(payload.projectId??current?.project_id))
+        return {result:rejected(op,'validation','invalid_expense_context')};
+    }
+    const linkedId=payload.procurementRequestId===undefined?current?.procurement_request_id:payload.procurementRequestId;
+    if(linkedId){
+      const request=await client.query<{estimate_id:string|null}>(
+        'SELECT estimate_id FROM procurement_requests WHERE organization_id=$1 AND project_id=$2 AND id=$3 AND deleted_at IS NULL',
+        [ctx.organizationId,payload.projectId??current?.project_id,linkedId]);
+      if(!request.rows[0]||request.rows[0].estimate_id!==(ownerId??null)||
+        (payload.category??current?.category)!=='materials')
+        return {result:rejected(op,'validation','invalid_expense_procurement_context')};
+    }
+  }
+  if (op.entityType==='estimate' && payload.currency!==undefined && current && op.operationType!=='delete') {
+    const linked=await client.query('SELECT 1 FROM payments WHERE organization_id=$1 AND estimate_id=$2 AND deleted_at IS NULL AND currency IS DISTINCT FROM $3 LIMIT 1',
+      [ctx.organizationId,op.entityId,payload.currency]);
+    if(linked.rowCount) return {result:rejected(op,'validation','currency_has_payments')};
+  }
+  if (op.operationType==='create') {
+    if (current) return {result:conflict(op,Number(current.revision)),state:snapshot(current,spec.fields)};
+    if (op.baseRevision!==0) return {result:rejected(op,'validation','invalid_base_revision')};
+    const entries=Object.entries(payload).map(([name,value])=>[spec.fields[name],value] as const);
+    const columns=['id','organization_id','revision',...entries.map(([column])=>column)];
+    const values=[op.entityId,ctx.organizationId,1,...entries.map(([,value])=>value)];
+    const insert=await client.query<Record<string,unknown>>(`INSERT INTO ${spec.table} (${columns.join(',')}) VALUES (${values.map((_,i)=>'$'+(i+1)).join(',')}) ON CONFLICT (id) DO NOTHING RETURNING *`,values);
+    if (!insert.rows[0]) return {result:rejected(op,'authorization','entity_not_available')};
+    return {result:{operationId:op.operationId,status:'applied',resultingRevision:1},state:snapshot(insert.rows[0],spec.fields),table:spec.table};
+  }
+  if (!current) return {result:rejected(op,'authorization','entity_not_available')};
+  if (Number(current.revision)!==op.baseRevision) return {result:conflict(op,Number(current.revision)),state:snapshot(current,spec.fields)};
+  if (current.deleted_at) return {result:rejected(op,'conflict','already_deleted')};
+  const entries=Object.entries(payload).map(([name,value])=>[spec.fields[name],value] as const);
+  const assignments=entries.map(([column],i)=>`${column}=$${i+1}`);
+  assignments.push('revision=revision+1','updated_at=now()');
+  if (op.operationType==='delete') assignments.push('deleted_at=now()');
+  const values=[...entries.map(([,value])=>value),op.entityId,ctx.organizationId,op.baseRevision];
+  const result=await client.query<Record<string,unknown>>(`UPDATE ${spec.table} SET ${assignments.join(',')} WHERE id=$${entries.length+1} AND organization_id=$${entries.length+2} AND revision=$${entries.length+3} AND deleted_at IS NULL RETURNING *`,values);
+  const updated=result.rows[0];
+  if (!updated) throw new Error('Serialized sync mutation unexpectedly changed');
+  const revision=Number(updated.revision);
+  return {result:{operationId:op.operationId,status:'applied',resultingRevision:revision},state:snapshot(updated,spec.fields),table:spec.table};
+}
+export async function applyOperation(ctx:Identity,op:SyncOperation):Promise<SyncResult> {
+  return transaction(async client=>{
+    // The organization lock serializes commits and cursor allocation, including duplicate requests.
+    await client.query('SELECT id FROM organizations WHERE id=$1 FOR NO KEY UPDATE',[ctx.organizationId]);
+    await assertCurrentAdmin(client,ctx);
+    const hash=requestHash(op);
+    const existing=await client.query<{id:string;request_hash:string|null;result:SyncResult|null}>('SELECT id,request_hash,result FROM sync_operations WHERE organization_id=$1 AND idempotency_key=$2',[ctx.organizationId,op.idempotencyKey]);
+    const previous=existing.rows[0];
+    if (previous) {
+      if (previous.request_hash!==hash || previous.id!==op.operationId || !previous.result) return rejected(op,'conflict','idempotency_key_reused_with_different_request');
+      await client.query('UPDATE sync_operations SET attempts=attempts+1,updated_at=now() WHERE id=$1',[previous.id]);
+      return {...previous.result,status:'duplicate',originalStatus:previous.result.status};
+    }
+    const reusedId=await client.query('SELECT id FROM sync_operations WHERE id=$1',[op.operationId]);
+    if (reusedId.rowCount) return rejected(op,'conflict','operation_id_reused');
+    const {result,state}=await mutation(client,ctx,op);
+    if(result.status==='applied' && (['payment','expense','stage','progressEntry','task','procurementRequest','procurementReceipt','clientDocument'].includes(op.entityType) ||
+      op.entityType==='estimateItem' && typeof op.payload==='object' && op.payload!==null && 'stageId' in op.payload)) await client.query(
+      'INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
+      [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`${op.entityType}.${op.operationType}`,op.entityType,op.entityId]);
+    await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result,conflict_metadata)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,1,$11,$12,$13,$14)`,[
+      op.operationId,ctx.organizationId,ctx.deviceId,op.entityType,op.entityId,op.operationType,op.baseRevision,
+      result.resultingRevision ?? null,result.status==='rejected'?'failed':result.status,op.idempotencyKey,op.occurredAt,hash,
+      JSON.stringify(result),result.status==='conflict'?JSON.stringify({clientBaseRevision:op.baseRevision,serverCurrentRevision:result.currentRevision}):null,
+    ]);
+    if(result.status==='conflict' && state) {
+      result.conflictId=randomUUID();
+      await client.query(`INSERT INTO sync_conflicts(id,organization_id,entity_type,entity_id,source_device_id,source_user_id,source_sync_operation_id,base_revision,server_revision_at_conflict,client_operation_type,client_proposal,server_snapshot)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[
+        result.conflictId,ctx.organizationId,op.entityType,op.entityId,ctx.deviceId,ctx.userId,op.operationId,op.baseRevision,result.currentRevision,op.operationType,JSON.stringify(op.payload),JSON.stringify(state),
+      ]);
+      await client.query('UPDATE sync_operations SET result=$1 WHERE id=$2',[JSON.stringify(result),op.operationId]);
+    }
+    if (result.status!=='applied' || !state) return result;
+    const cursor=await client.query<{sync_cursor:string}>('UPDATE organizations SET sync_cursor=sync_cursor+1 WHERE id=$1 RETURNING sync_cursor',[ctx.organizationId]);
+    const sequence=cursor.rows[0]?.sync_cursor;
+    if (!sequence) throw new Error('Missing sync cursor');
+    await client.query(`INSERT INTO sync_changes(organization_id,sequence,entity_type,entity_id,revision,operation_type,snapshot,source_device_id,sync_operation_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[ctx.organizationId,sequence,op.entityType,op.entityId,result.resultingRevision,op.operationType,JSON.stringify(state),ctx.deviceId,op.operationId]);
+    result.sequence=sequence;
+    await client.query('UPDATE sync_operations SET change_sequence=$1,result=$2,updated_at=now() WHERE id=$3',[sequence,JSON.stringify(result),op.operationId]);
+    return result;
+  });
+}
+export async function applyResolution(client:PoolClient,ctx:Identity,entityType:string,entityId:string,kind:'update'|'delete',payload:Record<string,unknown>,baseRevision:number) {
+  const op:SyncOperation={operationId:randomUUID(),idempotencyKey:randomUUID(),entityType,entityId,operationType:kind,baseRevision,payload,occurredAt:new Date().toISOString()};
+  const {result,state}=await mutation(client,ctx,op);
+  if(result.status==='rejected' && result.code==='invalid_reference') throw new HttpError(400,'Invalid reference','invalid_reference');
+  if(result.status!=='applied'||!state) throw new HttpError(409,'Resolution stale','resolution_stale');
+  if(['payment','expense','stage','progressEntry','task','procurementRequest','procurementReceipt'].includes(entityType) || entityType==='estimateItem' && 'stageId' in payload) await client.query(
+    'INSERT INTO audit_logs(id,organization_id,user_id,device_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
+    [randomUUID(),ctx.organizationId,ctx.userId,ctx.deviceId,`${entityType}.${kind}`,entityType,entityId]);
+  await client.query(`INSERT INTO sync_operations(id,organization_id,device_id,entity_type,entity_id,operation_type,base_revision,resulting_revision,status,idempotency_key,attempts,occurred_at,request_hash,result)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'applied',$9,1,$10,$11,$12)`,[op.operationId,ctx.organizationId,ctx.deviceId,entityType,entityId,kind,baseRevision,result.resultingRevision,op.idempotencyKey,op.occurredAt,requestHash(op),JSON.stringify(result)]);
+  const cursor=await client.query<{sync_cursor:string}>('UPDATE organizations SET sync_cursor=sync_cursor+1 WHERE id=$1 RETURNING sync_cursor',[ctx.organizationId]);
+  const sequence=cursor.rows[0]?.sync_cursor;
+  await client.query(`INSERT INTO sync_changes(organization_id,sequence,entity_type,entity_id,revision,operation_type,snapshot,source_device_id,sync_operation_id)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[ctx.organizationId,sequence,entityType,entityId,result.resultingRevision,kind,JSON.stringify(state),ctx.deviceId,op.operationId]);
+  await client.query('UPDATE sync_operations SET change_sequence=$1,result=$2 WHERE id=$3',[sequence,JSON.stringify({...result,sequence}),op.operationId]);
+  return result.resultingRevision;
+}
+export async function pullChanges(ctx:Identity,cursor:string,limit:number) {
+  const org=await pool.query<{sync_cursor:string}>('SELECT sync_cursor FROM organizations WHERE id=$1',[ctx.organizationId]);
+  if (BigInt(cursor)>BigInt(org.rows[0]?.sync_cursor ?? '0')) throw new HttpError(400,'Invalid cursor');
+  const changes=await pool.query<{sequence:string;entity_type:string;entity_id:string;revision:string;operation_type:string;snapshot:Record<string,unknown>;source_device_id:string;sync_operation_id:string;changed_at:Date}>(`SELECT sequence,entity_type,entity_id,revision,operation_type,snapshot,source_device_id,sync_operation_id,changed_at FROM sync_changes WHERE organization_id=$1 AND sequence>$2 ORDER BY sequence LIMIT $3`,[ctx.organizationId,cursor,limit+1]);
+  const hasMore=changes.rows.length>limit;
+  const page=changes.rows.slice(0,limit);
+  const visible=[];
+  for(const row of page) {
+    if(ctx.role!=='admin' && ['payment','expense','clientDocument'].includes(row.entity_type))continue;
+    if(ctx.role==='worker' && row.entity_type==='procurementReceipt')continue;
+    let state=row.snapshot,operation=row.operation_type;
+    if(ctx.role==='worker' && ['task','procurementRequest'].includes(row.entity_type) && state.assigneeId!==ctx.userId) {
+      // A previously assigned device must receive a redacted tombstone after reassignment.
+      const prior=await pool.query<{assignee:string|null}>(`SELECT snapshot->>'assigneeId' AS assignee FROM sync_changes
+        WHERE organization_id=$1 AND entity_type=$4 AND entity_id=$2 AND sequence<$3
+        ORDER BY sequence DESC LIMIT 1`,[ctx.organizationId,row.entity_id,row.sequence,row.entity_type]);
+      if(prior.rows[0]?.assignee!==ctx.userId)continue;
+      state={id:row.entity_id,revision:Number(row.revision),deletedAt:row.changed_at.toISOString()};
+      operation='delete';
+    }
+    visible.push({sequence:row.sequence,entityType:row.entity_type,entityId:row.entity_id,revision:Number(row.revision),operationType:operation,snapshot:visibleSnapshot(ctx.role,state),sourceDeviceId:row.source_device_id,operationId:row.sync_operation_id,changedAt:row.changed_at.toISOString()});
+  }
+  return {changes:visible,nextCursor:page.at(-1)?.sequence ?? cursor,hasMore};
+}

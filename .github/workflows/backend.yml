@@ -1,0 +1,148 @@
+name: Arhilab 0.7.0 Backend
+on:
+  push:
+    branches: [arhilab-0.7.0-architecture]
+    paths: ['backend/**', 'arhilab/**', 'docs/CATALOG_PRICE_UPDATE_2026_09.md', '.github/workflows/backend.yml']
+  pull_request:
+    paths: ['backend/**', 'arhilab/**', 'docs/CATALOG_PRICE_UPDATE_2026_09.md', '.github/workflows/backend.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: arhilab
+          POSTGRES_PASSWORD: ${{ github.run_id }}
+          POSTGRES_DB: arhilab_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U arhilab -d arhilab_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://arhilab:${{ github.run_id }}@localhost:5432/arhilab_test
+      NODE_ENV: test
+      LOGIN_RATE_LIMIT_MAX: 100
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Compile Android application sources without signing or packaging
+        working-directory: .
+        run: |
+          sdk_root="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          test -n "$sdk_root"
+          if [ ! -f "$sdk_root/platforms/android-35/android.jar" ]; then
+            sdkmanager --install 'platforms;android-35'
+          fi
+          mkdir -p /tmp/arhilab-f1-classes
+          javac -encoding UTF-8 -source 8 -target 8 \
+            -classpath "$sdk_root/platforms/android-35/android.jar" \
+            -d /tmp/arhilab-f1-classes arhilab/src/ru/arhilab/estimate/*.java
+      - name: F1 Android local migration and durable queue regression
+        working-directory: .
+        run: |
+          curl -fsSL --retry 3 https://repo.maven.apache.org/maven2/org/json/json/20250517/json-20250517.jar -o /tmp/arhilab-org-json.jar
+          echo '3ea61b2a06e31edf1c91134fe9106b0ebb16628be169f3db75bc7a2b06b45796  /tmp/arhilab-org-json.jar' | sha256sum -c -
+          mkdir -p /tmp/arhilab-f1-tests
+          javac -encoding UTF-8 -source 8 -target 8 -cp /tmp/arhilab-org-json.jar -d /tmp/arhilab-f1-tests \
+            arhilab/src/ru/arhilab/estimate/{F7Documents,DataMigration,LocalEstimates,F1SyncLedger,F1SyncMerge,F1SyncTransport,F2Payments,F3Expenses,F4Execution,F5Tasks,F6Procurement,CatalogPriceUpdate,BackupCrypto}.java \
+            arhilab/tests/{F1SyncLedgerTest,F2PaymentsTest,F3ExpensesTest,F4ExecutionTest,F5TasksTest,F6ProcurementTest,F7DocumentsTest,CatalogPriceUpdateTest}.java
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F1SyncLedgerTest /tmp/arhilab-f1-android-operations.json /tmp/arhilab-f1-money.json
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F2PaymentsTest /tmp/arhilab-f2-android-operations.json
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F3ExpensesTest /tmp/arhilab-f3-android-operations.json
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F4ExecutionTest /tmp/arhilab-f4-android-operations.json
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F5TasksTest /tmp/arhilab-f5-android-operations.json
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F6ProcurementTest /tmp/arhilab-f6-android-operations.json /tmp/arhilab-f6-restored-operations.json
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F7DocumentsTest
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.CatalogPriceUpdateTest arhilab/assets/catalog.json
+          node arhilab/tests/f1_legacy_total.cjs /tmp/arhilab-f1-money.json
+          node arhilab/tests/f2_payments.cjs
+          node arhilab/tests/f3_expenses.cjs
+          node arhilab/tests/f3_expense_ui.cjs
+          node arhilab/tests/f4_execution.cjs
+          node arhilab/tests/f4_execution_ui.cjs
+          node arhilab/tests/f5_today.cjs
+          node arhilab/tests/f5_tasks_ui.cjs
+          node arhilab/tests/f6_today.cjs
+          node arhilab/tests/f6_ui.cjs
+          node arhilab/tests/catalog_price_update.cjs
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - name: Legacy Android calculation and F1 markup regression
+        working-directory: arhilab
+        run: |
+          node tests/calculations.cjs
+          node tests/version061.cjs
+          node tests/version062.cjs
+          node tests/tier_scenarios.cjs
+          node tests/work_markup.cjs
+          node tests/work_markup_ui_unit.cjs
+      - name: Android local encryption and photo regression
+        working-directory: arhilab
+        run: |
+          mkdir -p build/tests
+          javac -encoding UTF-8 -d build/tests src/ru/arhilab/estimate/{MaterialMarkup,BackupCrypto,PhotoStore}.java tests/{MaterialMarkupTest,StorageCryptoTest,AndroidKeystoreIvTest}.java
+          for test in MaterialMarkupTest StorageCryptoTest AndroidKeystoreIvTest; do java -cp build/tests "$test"; done
+      - run: npm run migrate:test
+      - name: Start local S3-compatible storage
+        run: |
+          docker run -d --name arhilab-ci-s3 -p 4566:4566 \
+            -e SERVICES=s3 -e AWS_DEFAULT_REGION=us-east-1 \
+            localstack/localstack:3.8.0
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:4566/_localstack/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs arhilab-ci-s3
+          exit 1
+      - name: Stage 2 and Stage 3 PostgreSQL integration tests
+        env:
+          STORAGE_TEST_S3_ENDPOINT: http://127.0.0.1:4566
+          F1_CLIENT_FIXTURE_PATH: /tmp/arhilab-f1-android-operations.json
+          F2_CLIENT_FIXTURE_PATH: /tmp/arhilab-f2-android-operations.json
+          F3_CLIENT_FIXTURE_PATH: /tmp/arhilab-f3-android-operations.json
+          F4_CLIENT_FIXTURE_PATH: /tmp/arhilab-f4-android-operations.json
+          F5_CLIENT_FIXTURE_PATH: /tmp/arhilab-f5-android-operations.json
+          F6_CLIENT_FIXTURE_PATH: /tmp/arhilab-f6-android-operations.json
+          F6_RESTORED_FIXTURE_PATH: /tmp/arhilab-f6-restored-operations.json
+        run: npm run test:integration
+      - run: npm run build
+      - run: docker build -t arhilab-backend:test .
+      - name: Compose health smoke test
+        run: |
+          docker compose up -d --build
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/api/v1/health && curl -fsS http://localhost:3000/api/v1/health/storage; then exit 0; fi
+            sleep 2
+          done
+          docker compose logs
+          exit 1
+      - name: Verify production bootstrap command
+        run: docker compose exec -T api test -f /app/dist/bootstrap.js
+      - name: Compose bootstrap and sync smoke test
+        run: |
+          smoke_password="$(openssl rand -hex 24)"
+          org="$(docker compose exec -T -e BOOTSTRAP_ORGANIZATION_NAME='CI smoke org' -e BOOTSTRAP_ADMIN_EMAIL=ci-smoke@test.example -e BOOTSTRAP_ADMIN_PASSWORD="$smoke_password" api node dist/bootstrap.js | sed -n 's/^Organization initialized: //p')"
+          test -n "$org"
+          COMPOSE_SMOKE_ORG="$org" COMPOSE_SMOKE_PASSWORD="$smoke_password" node --import tsx scripts/smoke-compose.ts
+      - if: always()
+        run: |
+          docker compose down -v
+          docker rm -f arhilab-ci-s3 || true

@@ -1,0 +1,15 @@
+# F1 Android estimate sync checkpoint
+
+Android local schema 4 preserves the 0.6.2 embedded estimate while adding a deterministic legacy estimate UUID and independent estimates. `F1SyncLedger` projects objects, estimates, works and materials to Stage 3 operation payloads. Changes to the encrypted JSON and the queue are committed together to `data.enc` with AES-GCM and the existing Android Keystore key. The queue stores immutable operation and idempotency UUIDs, base revisions and an outbox shadow. Invalid historical precision blocks projection visibly; it is never rounded to fit PostgreSQL. The original data remains local.
+
+`F1SyncTransport` sends admin operations over HTTPS and uses the existing backend authentication, refresh, push, pull and consistent snapshot endpoints. The new action in Android Settings starts synchronization on a background thread. Local saves never make a network request. A lost push response leaves the same operation for retry; a lost refresh response requires reauthentication rather than reusing a potentially consumed refresh token. The access and refresh tokens stay inside the encrypted local database and are excluded from backup and WebView state.
+
+`F1SyncMerge` applies the snapshot or a complete page of changes before persisting the associated cursor in the same encrypted write. It overlays supported fields while preserving local payment and photo records. Incoming changes for an entity with a pending or conflicted local operation do not overwrite the local proposal. The conflict count is exposed to the UI; there is no automatic resolution. The server remains the permission authority; Android sends only with an authenticated server admin account.
+
+Migration 011 keeps known cost, material kit details and internal financial fields in whitelisted `private_fields` columns. Admin receives them as `privateData`; manager and worker receive redacted bootstrap and change feed snapshots. The Android projection rejects unsupported or excessively precise values before adding an outbox operation. The private state is retained in encrypted local storage and omitted from backups' server auth state.
+
+## Unresolved preservation boundary
+
+The F1 projection still does not reconstruct legacy purchases, tasks, notes, photos, assignments or every catalog annotation on a second device. They remain in the original encrypted source and ARHILAB2 backup. The UI flags a partial legacy transfer on the source and, conservatively, whenever a second device receives a row without private history. It must not imply that the complete 0.6.2 record was synchronized. Existing Stage 4 restricted archives are only created by its explicit migration protocol and cannot be assumed to contain an Android outbox record. Define a safe destination and authorization policy for these remaining fields before declaring complete preservation.
+
+The node based Stage 5 file queue remains separate from this Android business transport. Android photo and document binary upload is not connected by this F1 adapter. Existing 0.6.2 PhotoStore and backup continue to hold local photos.

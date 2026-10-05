@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const C=JSON.parse(fs.readFileSync('assets/catalog.json','utf8'));
 const {calc,scenario,procurement,packs}=require('../assets/core.js');
 assert.equal(C.materials.length,254);
-assert.equal(C.works.length,371);
+assert.equal(C.works.length,389);
 assert.equal(C.works.filter(w=>w.tiers.standard.materialIds.length).length,110);
 const w=C.works.find(x=>x.tiers.standard.materialIds.length);
 const projects=Array.from({length:100},(_,i)=>({

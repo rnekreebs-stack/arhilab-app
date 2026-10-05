@@ -1,0 +1,33 @@
+import { pool } from '../database/pool.js';
+import { HttpError } from '../middleware/errors.js';
+import type { Identity } from '../services/security.js';
+import { entityTypes,specification,visibleSnapshot } from './registry.js';
+const MAX_BOOTSTRAP_ENTITIES = 2500;
+
+export async function snapshotForBootstrap(ctx:Identity,afterCursorRead?:()=>Promise<void>) {
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const org=await client.query<{sync_cursor:string}>('SELECT sync_cursor FROM organizations WHERE id=$1',[ctx.organizationId]);
+    if(afterCursorRead) await afterCursorRead();
+    const entities:Array<{entityType:string;entityId:string;revision:number;snapshot:Record<string,unknown>}>=[];
+    for(const type of entityTypes) {
+      if((type==='payment'||type==='expense'||type==='clientDocument') && ctx.role!=='admin') continue;
+      if(type==='procurementReceipt' && ctx.role==='worker') continue;
+      const spec=specification(type);
+      if(!spec) continue;
+      const files=type==='photo'||type==='document'?" AND (status='available' OR deleted_at IS NOT NULL)":'';
+      const assigned=(type==='task'||type==='procurementRequest')&&ctx.role==='worker'?' AND assignee_id=$3':'';
+      const rows=await client.query<Record<string,unknown>>(`SELECT * FROM ${spec.table} WHERE organization_id=$1${files}${assigned} ORDER BY id LIMIT $2`,
+        assigned?[ctx.organizationId,MAX_BOOTSTRAP_ENTITIES+1-entities.length,ctx.userId]:[ctx.organizationId,MAX_BOOTSTRAP_ENTITIES+1-entities.length]);
+      for(const row of rows.rows) {
+        const value:Record<string,unknown>={id:row.id,revision:Number(row.revision),deletedAt:row.deleted_at};
+        for(const [field,column] of Object.entries(spec.fields)) value[field]=row[column];
+        entities.push({entityType:type,entityId:String(row.id),revision:Number(row.revision),snapshot:visibleSnapshot(ctx.role,value)});
+      }
+      if(entities.length>MAX_BOOTSTRAP_ENTITIES) throw new HttpError(413,'Snapshot exceeds page limit','snapshot_too_large');
+    }
+    await client.query('COMMIT');
+    return {cursor:org.rows[0]?.sync_cursor??'0',entities};
+  } catch(error) {await client.query('ROLLBACK');throw error;} finally {client.release();}
+}

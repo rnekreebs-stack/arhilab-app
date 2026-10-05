@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict');const {calc,round,scenario}=require('../assets/core.js');const c=require('../assets/catalog.json');
-assert.equal(c.works.length,371);assert.equal(c.materials.length,254);assert.equal(c.works.filter(w=>w.tiers.standard.materialIds.length).length,110);
+assert.equal(c.works.length,389);assert.equal(c.materials.length,254);assert.equal(c.works.filter(w=>w.tiers.standard.materialIds.length).length,110);
 const scenarios=[
  [{}, {total:0,profit:0,margin:0}],
  [{lines:[{price:100,cost:60,qty:10,coef:1}]},{work:1000,labor:600,gross:400,margin:40}],
@@ -21,4 +21,4 @@ const scenarios=[
  [{materials:[{price:1149.12,cost:1064,qty:2.5}]},{total:2872.8,matCost:2660,gross:212.8}],
  [{lines:[{price:100,cost:60,qty:1,coef:1}],payments:[{amount:100,kind:'income'}]},{balance:0}],
  [{lines:[{price:100,cost:60,qty:1,coef:1}],delivery:10,deliveryCost:5,discount:5,overhead:3,otherCost:2,materials:[{price:108,cost:100,qty:1}],payments:[{amount:200,kind:'income'},{amount:50,kind:'expense'}]},{total:213,gross:48,profit:43,balance:13,cash:150}]
-];scenarios.forEach(([p,expected],i)=>{let actual=calc(p);for(const [k,v] of Object.entries(expected))assert.equal(actual[k],v,`case ${i+1}: ${k}`)});console.log('PASS: 20 independent calculation scenarios; 371 works, 254 materials, 110 linked works.');
+];scenarios.forEach(([p,expected],i)=>{let actual=calc(p);for(const [k,v] of Object.entries(expected))assert.equal(actual[k],v,`case ${i+1}: ${k}`)});console.log('PASS: 20 independent calculation scenarios; 389 works, 254 materials, 110 linked works.');
