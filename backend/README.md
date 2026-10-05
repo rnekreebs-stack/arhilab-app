@@ -1,8 +1,10 @@
-# Arhilab Смета backend — архитектурный фундамент 0.7.0
+# Arhilab Смета 0.7.0 — backend
 
-Stage 5 adds private photo/document storage and metadata sync. See [file API and storage contract](API_STAGE5_FILES.md) and [local-first client architecture](../docs/ANDROID_070_SYNC_ARCHITECTURE.md). Development Compose persists file objects in a named volume; production requires S3-compatible private storage. Android 0.6.2 remains unchanged.
+Серверный REST API, миграции и тесты. Этапы 2–5 добавили авторизацию и устройства, синхронизацию с конфликтами, хранение файлов и клиентские документы F7. См. [контракт файлов](API_STAGE5_FILES.md), [архитектуру Android](../docs/ANDROID_070_SYNC_ARCHITECTURE.md) и [release notes](../RELEASE_0.7.0.md).
 
-Этот каталог изолирован от Android-приложения 0.6.2. На Этапе 1 Android не вызывает API, пользовательские данные не передаются на сервер, локальная авторизация, backup/restore и offline-режим не изменяются.
+**Граница выпуска:** Android 0.7.0 сохраняет локальную авторизацию и работу без сети. Производственный адаптер нового sync API и перенос локальной базы 0.6.2 ещё не включены; сервер требует отдельного развёртывания. Compose хранит файлы в постоянном томе; production требует частного S3-совместимого хранилища.
+
+Описания «Этап 1» и «Stage 2» ниже фиксируют состояние на тех этапах, а не итоговый объём выпуска.
 
 ## Стек
 
@@ -15,7 +17,7 @@ Stage 5 adds private photo/document storage and metadata sync. See [file API and
 - Pino для структурированного JSON-логирования;
 - Docker / Docker Compose для локальной среды.
 
-API начинается с `/api/v1`. Единственный публичный endpoint Этапа 1 — `GET /api/v1/health`.
+API начинается с `/api/v1`. Публичный `GET /api/v1/health` показывает состояние сервиса; остальные маршруты описаны в контрактах этапов.
 
 ## Структура
 
@@ -36,7 +38,7 @@ backend/
 └── tests/               unit и integration tests
 ```
 
-Первая миграция создаёт UUID-модели `Organization`, `User`, `Device`, `Project`, `Estimate`, `EstimateItem`, `Material`, `Stage`, `Payment`, `Task`, `Photo`, `Document`, `SyncOperation` и `AuditLog`. Синхронизация и авторизация намеренно не реализованы.
+Миграция 001 создаёт UUID-модели `Organization`, `User`, `Device`, `Project`, `Estimate`, `EstimateItem`, `Material`, `Stage`, `Payment`, `Task`, `Photo`, `Document`, `SyncOperation` и `AuditLog`. Последующие миграции 002–018 добавляют авторизацию, синхронизацию и документы.
 
 ## Окружения
 
@@ -112,7 +114,7 @@ GitHub Actions дополнительно собирает Docker image, зап�
 
 Для локальных миграций с Docker Compose задайте `DATABASE_URL=postgresql://arhilab:local-development-only@localhost:5433/arhilab`. Для `migrate:test` используйте отдельную одноразовую тестовую базу: проверка выполняет `down` всех миграций.
 
-В план отдельного Android/financial этапа внесена наценка на работы: процент и сумма, быстрые значения 0/5/10/15/20/25/30%, итог клиенту, чистая прибыль и маржинальность, независимо от наценки материалов. Старым сметам потребуется `workMarkup = 0`, клиентское КП не должно показывать внутреннюю себестоимость и наценку. На Этапе 1 это не реализуется.
+В F1 реализована наценка на работы отдельно от наценки материалов; исторические сметы открываются без пересчёта. См. [функциональную модель](../docs/FUNCTIONAL_070.md).
 
 ## Health endpoint
 
@@ -157,9 +159,9 @@ After migrations and `npm run build`, pass `BOOTSTRAP_ORGANIZATION_NAME`, `BOOTS
 
 [Stage 2 API contract](API_STAGE2.md) describes requests, responses, error codes and token handling. Login has a separate per-instance IP limiter (`LOGIN_RATE_LIMIT_MAX`, default 10 attempts per 15 minutes); general API rate limiting remains active. Production with multiple replicas needs shared rate limiting or enforcement at the edge. TLS is required for any nonlocal API deployment. Configure `CORS_ORIGINS` for allowed browser origins. The refresh token is a bearer secret and should be stored securely by a future client; Stage 2 does not connect Android or migrate its existing users. Audit logs record action, actor, target and safe metadata without credentials.
 
-Migration tests first apply Stage 1 alone, verify it, apply Stage 2 migrations 002 and 003, test the expanded schema, roll Stage 2 back to Stage 1, roll back Stage 1 and reapply all migrations. Run against a disposable PostgreSQL 17 database using `npm run migrate:test`. `npm run test:integration` tests the real database. CI also checks Docker build and Compose health. The Android 0.6.2 workflow remains separate.
+Migration tests first apply Stage 1 alone, verify it, apply Stage 2 migrations 002 and 003, test the expanded schema, roll Stage 2 back to Stage 1, roll back Stage 1 and reapply all migrations. Run against a disposable PostgreSQL 17 database using `npm run migrate:test`. `npm run test:integration` tests the real database. CI also checks Docker build and Compose health. The Android workflow remains separate.
 
-Open architecture question before Stage 3: Is `Project` the construction object, or should `Project` and `Object` be distinct entities? No `objects` table has been added. Work markup remains deferred to a separate financial/Android stage.
+Resolved after Stage 2: `Project` is the internal construction object; the UI shows «Объект». Work markup is implemented in F1.
 
 ## Stage 3 — isolated offline-first sync foundation
 
