@@ -92,7 +92,7 @@ public class Smoke extends Instrumentation {
    js("go('home')");check("page==='home'&&document.querySelector('#app h1')?.textContent==='Сегодня'","Today rendered");screen("today");
    js("go('projects')");check("page==='projects'&&!!document.querySelector('#projectList')","project list rendered");screen("projects");
    js("openProject(S.projects[0].id)");check("page==='project'&&tab==='estimate'&&!!document.querySelector('#detail')","object rendered");screen("object");
-   for(String[] item:new String[][]{{"estimate","estimate"},{"materials","materials"},{"tasks","stages"},{"payments","payments"},{"documents","documents"}}){js("(()=>{tab='"+item[0]+"';projectPage();return true})()");check("tab==='"+item[0]+"'&&document.querySelector('#detail')?.textContent.length>0",item[1]+" rendered");screen(item[1]);}
+   for(String[] item:new String[][]{{"estimate","estimate"},{"materials","materials"},{"tasks","stages"},{"payments","payments"},{"documents","documents"}}){js("(()=>{tab='"+item[0]+"';projectPage();document.querySelector('#detail').scrollIntoView();return true})()");check("tab==='"+item[0]+"'&&document.querySelector('#detail')?.textContent.length>0",item[1]+" rendered");screen(item[1]);}
    js("go('settings')");check("page==='settings'&&document.querySelector('#app h1')?.textContent==='Настройки'","settings rendered");screen("settings");
    result.putString("stream","ARHILAB_UI08_SCREENSHOTS_PASS\n");finish(Activity.RESULT_OK,result);return;
   }

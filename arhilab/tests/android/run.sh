@@ -105,6 +105,7 @@ for screen in today projects object estimate materials stages payments documents
   adb exec-out run-as ru.arhilab.estimate cat "files/ui08-$screen.png" > "output/ui08-$screen.png"
   test -s "output/ui08-$screen.png"
 done
+test "$(sha256sum output/ui08-{today,projects,object,estimate,materials,stages,payments,documents,settings}.png | cut -d' ' -f1 | sort -u | wc -l)" -eq 9
 if [[ -f output/upgrade-baseline-0.7.0-release.apk ]]; then
   adb uninstall ru.arhilab.estimate.smoke || true
   adb uninstall ru.arhilab.estimate || true
