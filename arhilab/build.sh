@@ -23,7 +23,7 @@ import sys, pathlib, xml.etree.ElementTree as ET
 variant, build = sys.argv[1:]
 p=pathlib.Path('AndroidManifest.xml');root=ET.fromstring(p.read_text());a='{http://schemas.android.com/apk/res/android}'
 assert root.attrib['package']=='ru.arhilab.estimate'
-assert root.attrib[a+'versionName']=='0.7.0' and root.attrib[a+'versionCode']=='11'
+assert root.attrib[a+'versionName']=='0.8.0-alpha1' and root.attrib[a+'versionCode']=='12'
 ET.register_namespace('android',a[1:-1]);root.find('application').set(a+'debuggable','true' if variant=='debug' else 'false')
 ET.ElementTree(root).write(pathlib.Path(build)/'AndroidManifest.xml',encoding='utf-8',xml_declaration=True)
 PY
@@ -45,7 +45,7 @@ else
   : "${SIGNING_KEY_ALIAS:=arhilab}"
   export SIGNING_KEY_PASSWORD="${SIGNING_KEY_PASSWORD:-$SIGNING_STORE_PASSWORD}"
 fi
-APK="../output/Arhilab-Смета-0.7.0-F7-$variant.apk"
+APK="../output/Arhilab-Смета-0.8.0-alpha1-$variant.apk"
 "$BT/apksigner" sign --ks "$SIGNING_KEYSTORE" --ks-key-alias "$SIGNING_KEY_ALIAS" --ks-pass env:SIGNING_STORE_PASSWORD --key-pass env:SIGNING_KEY_PASSWORD --out "$APK" "$BUILD/aligned.apk"
 "$BT/apksigner" verify --verbose --print-certs "$APK" > "$APK.signature.txt"
 if [[ "$variant" == release ]]; then
@@ -56,11 +56,11 @@ python3 - "$APK" <<'PY'
 import sys,pathlib,zipfile,json,hashlib
 p=pathlib.Path(sys.argv[1]);assert p.stat().st_size>0
 info=pathlib.Path(str(p)+'.metadata.txt').read_text()
-assert "name='ru.arhilab.estimate'" in info and "versionName='0.7.0'" in info and "versionCode='11'" in info
+assert "name='ru.arhilab.estimate'" in info and "versionName='0.8.0-alpha1'" in info and "versionCode='12'" in info
 with zipfile.ZipFile(p) as z:
  c=json.loads(z.read('assets/catalog.json'));assert len(c['materials'])==254
  assert len(c['works'])==389 and sum(bool(w['tiers']['standard']['materialIds']) for w in c['works'])==110
  assert next(w for w in c['works'] if w['name']=='Монтаж душевого трапа')['price']==6500
 p.with_suffix('.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')
-print('Verified:',p,'bytes:',p.stat().st_size,'package ru.arhilab.estimate, version 0.7.0 (11), 254 SKU')
+print('Verified:',p,'bytes:',p.stat().st_size,'package ru.arhilab.estimate, version 0.8.0-alpha1 (12), 254 SKU')
 PY

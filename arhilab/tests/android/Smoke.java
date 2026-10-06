@@ -4,6 +4,7 @@ import android.content.*;
 import android.os.*;
 import android.view.*;
 import android.webkit.*;
+import android.graphics.Bitmap;
 import org.json.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
@@ -35,6 +36,7 @@ public class Smoke extends Instrumentation {
  }return new JSONObject().put("projects",out);}
  File fixture(String name){File dir=getTargetContext().getFilesDir();if(!dir.isDirectory()&&!dir.mkdirs())throw new IllegalStateException("Cannot create smoke fixture directory");return new File(dir,name);}
  void write(String name,byte[] bytes)throws Exception{try(FileOutputStream out=new FileOutputStream(fixture(name))){out.write(bytes);out.getFD().sync();}}
+ void screen(String name)throws Exception{Thread.sleep(450);Bitmap image=getUiAutomation().takeScreenshot();if(image==null)throw new Exception("Screenshot unavailable: "+name);try(FileOutputStream out=new FileOutputStream(fixture("ui08-"+name+".png"))){if(!image.compress(Bitmap.CompressFormat.PNG,100,out))throw new Exception("Screenshot write: "+name);}finally{image.recycle();}}
  byte[] read(String name)throws Exception{try(FileInputStream in=new FileInputStream(fixture(name));ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toByteArray();}}
  JSONObject snapshot()throws Exception{
   JSONArray result=new JSONArray(),projects=database().getJSONArray("projects");
@@ -85,6 +87,15 @@ public class Smoke extends Instrumentation {
  public void onStart(){Bundle result=new Bundle();try{
   launch();
   String smokePassword=java.util.UUID.randomUUID().toString();
+  if(mode.equals("screenshots")){
+   check("S?.user?.role==='admin'&&S.projects.length>0","screenshots use signed-in local dataset");
+   js("go('home')");screen("today");
+   js("go('projects')");screen("projects");
+   js("openProject(S.projects[0].id)");screen("object");
+   for(String[] item:new String[][]{{"estimate","estimate"},{"materials","materials"},{"tasks","stages"},{"payments","payments"},{"documents","documents"}}){js("tab='"+item[0]+"';projectPage()");screen(item[1]);}
+   js("go('settings')");screen("settings");
+   result.putString("stream","ARHILAB_UI08_SCREENSHOTS_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
   if(mode.equals("upgradePrepare")||mode.equals("f6Prepare")){
    check("api('status').setup===true",mode.equals("f6Prepare")?"F6 baseline clean install":"0.6.2 baseline clean install");
    js("api('setup',{name:'Upgrade admin',password:"+JSONObject.quote(smokePassword)+"})");
@@ -111,7 +122,7 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_UPGRADE_PREPARE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("f6Verify")||mode.equals("f6Restart")){
-   check("api('about').versionCode===11&&api('about').schemaVersion===9&&api('session').active","F6 to F7 signed in-place migration and session");
+   check("api('about').versionCode===12&&api('about').schemaVersion===9&&api('session').active","signed in-place migration and session");
    JSONObject before=new JSONObject(new String(read("f6-before.json"),StandardCharsets.UTF_8)),after=f6Snapshot();
    if(!before.toString().equals(after.toString()))throw new Exception("F6→F7 data changed: "+before+" versus "+after);
    check("S.projects.length===2&&S.projects[0].estimates.length===2&&S.projects[0].expenses.length===1&&S.projects[0].procurementRequests.length===1&&S.projects[0].procurementReceipts.length===1","F6 identities, estimates, F3-F6 preserved");
@@ -122,7 +133,7 @@ public class Smoke extends Instrumentation {
    }else result.putString("stream","ARHILAB_F6_F7_RESTART_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("upgradeVerify")){
-   check("api('about').version==='0.7.0'&&api('about').versionCode===11&&api('about').schemaVersion===9","0.7.0 schema migrated");
+   check("api('about').version==='0.8.0-alpha1'&&api('about').versionCode===12&&api('about').schemaVersion===9","0.8.0-alpha1 local schema retained");
    check("S?.user?.role==='admin'&&api('session').active","admin session survives installation update");
    JSONObject before=new JSONObject(new String(read("upgrade-before.json"),StandardCharsets.UTF_8)),after=snapshot();
    write("upgrade-after.json",after.toString().getBytes(StandardCharsets.UTF_8));
