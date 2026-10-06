@@ -13,7 +13,7 @@ public final class F7DocumentsTest {
    .put("tasks",new JSONArray()).put("payments",new JSONArray()).put("workMarkupPercent","10").put("delivery",50).put("discount",10);
   LocalEstimates.ensure(p);JSONObject data=new JSONObject().put("schemaVersion",8).put("users",new JSONArray()).put("projects",new JSONArray().put(p));
   data=DataMigration.migrate(data);p=data.getJSONArray("projects").getJSONObject(0);
-  check(data.getInt("schemaVersion")==9&&p.getJSONArray("clientDocuments").length()==0,"additive migration");
+  check(data.getInt("schemaVersion")==DataMigration.CURRENT&&p.getJSONArray("clientDocuments").length()==0,"additive migration");
   String estimate=p.getString("legacyEstimateId"),request=UUID.randomUUID().toString();
   JSONObject options=new JSONObject().put("materials","detailed").put("showMaterialPrices",true);
   JSONObject v1=F7Documents.create(p,estimate,"COMMERCIAL_OFFER",options,request,uid);

@@ -1,4 +1,4 @@
-name: Arhilab Смета 0.8.0 alpha1 Android
+name: Arhilab Смета 0.8.0 alpha2 Android
 on:
   workflow_dispatch:
   push:
@@ -149,16 +149,16 @@ jobs:
         if: always() && steps.debug.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: arhilab-0.8.0-alpha1-debug-apk
-          path: output/Arhilab-Смета-0.8.0-alpha1-debug.apk
+          name: arhilab-0.8.0-alpha2-debug-apk
+          path: output/Arhilab-Смета-0.8.0-alpha2-debug.apk
           if-no-files-found: error
           retention-days: 30
       - name: Downloadable signed Release APK
         if: steps.release.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: arhilab-0.8.0-alpha1-release-apk
-          path: output/Arhilab-Смета-0.8.0-alpha1-release.apk
+          name: arhilab-0.8.0-alpha2-release-apk
+          path: output/Arhilab-Смета-0.8.0-alpha2-release.apk
           if-no-files-found: error
           retention-days: 30
       - name: Verification reports

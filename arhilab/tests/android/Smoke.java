@@ -32,7 +32,10 @@ public class Smoke extends Instrumentation {
  JSONObject F7DocumentFromDb(JSONObject db,int projectIndex)throws Exception{return db.getJSONArray("projects").getJSONObject(projectIndex).getJSONArray("clientDocuments").getJSONObject(0);}
  JSONObject f6Snapshot()throws Exception{JSONArray projects=database().getJSONArray("projects"),out=new JSONArray();for(int i=0;i<projects.length();i++){
   JSONObject p=projects.getJSONObject(i),row=new JSONObject();for(String key:new String[]{"id","name","lines","materials","payments","expenses","tasks","procurementRequests","procurementReceipts","estimates"})
-   if(p.has(key))row.put(key,p.get(key));out.put(row);
+   if(p.has(key)){
+    if(key.equals("estimates")){JSONArray comparable=new JSONArray(),estimates=p.getJSONArray(key);for(int j=0;j<estimates.length();j++){JSONObject e=new JSONObject(estimates.getJSONObject(j).toString());e.remove("lifecycleStatus");e.remove("lifecycleRevision");comparable.put(e);}row.put(key,comparable);}
+    else row.put(key,p.get(key));
+   }out.put(row);
  }return new JSONObject().put("projects",out);}
  File fixture(String name){File dir=getTargetContext().getFilesDir();if(!dir.isDirectory()&&!dir.mkdirs())throw new IllegalStateException("Cannot create smoke fixture directory");return new File(dir,name);}
  void write(String name,byte[] bytes)throws Exception{try(FileOutputStream out=new FileOutputStream(fixture(name))){out.write(bytes);out.getFD().sync();}}
@@ -87,6 +90,32 @@ public class Smoke extends Instrumentation {
  public void onStart(){Bundle result=new Bundle();try{
   launch();
   String smokePassword=java.util.UUID.randomUUID().toString();
+  if(mode.equals("lifecyclePrepare")){
+   js("(()=>{let p=S.projects.find(x=>x.name==='Smoke project');openProject(p.id);let r=api('estimateCreate',{project:p.id,name:'Смета жизненного цикла'});window.lifecycleId=r.estimateId;api('estimateManualWork',{project:p.id,estimate:r.estimateId,name:'Сохранённая работа',qty:2,coef:1,unit:'шт',price:1500});api('f4StageSave',{project:p.id,estimate:r.estimateId,name:'Связанный этап'});window.lifecycleTotal=calc(current().estimates.find(x=>x.id===r.estimateId)).total;selectedEstimateId=r.estimateId;projectPage();return true})()");
+   check("document.querySelector('#detail')?.textContent.includes('Сохранённая работа')&&window.lifecycleTotal===3000","estimate created with row and total");
+   js("estimateLifecycleAction(window.lifecycleId,'archive')");
+   check("(()=>{let e=current().estimates.find(x=>x.id===window.lifecycleId);return e.lifecycleStatus==='archived'&&e.executionStages.length===1&&availableEstimates(current(),'active').every(x=>x.id!==e.id)&&availableEstimates(current(),'archived').some(x=>x.id===e.id)})()","archive preserves row and stage, excludes active");
+   write("lifecycle-id.txt",js("window.lifecycleId").replace("\"","").getBytes(StandardCharsets.UTF_8));backup("lifecycle-archived.arhilab");
+   result.putString("stream","ARHILAB_LIFECYCLE_PREPARE_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
+  if(mode.equals("lifecycleArchived")){
+   String id=new String(read("lifecycle-id.txt"),StandardCharsets.UTF_8);
+   js("openProject(S.projects.find(x=>x.name==='Smoke project').id)");
+   check("(()=>{let e=current().estimates.find(x=>x.id==='"+id+"');return e.lifecycleStatus==='archived'&&e.lines.length===1&&calc(e).total===3000&&e.executionStages.length===1})()","archive persists after force-stop");
+   js("(()=>{estimateViewMode='archived';projectPage();return true})()");check("document.querySelector('#detail')?.textContent.includes('В архиве')","archive filter and status visible");
+   js("(()=>{api('estimateLifecycle',{project:pid,id:'"+id+"',change:'restore'});api('state');estimateViewMode='active';selectedEstimateId='"+id+"';projectPage();return true})()");
+   check("(()=>{let e=current().estimates.find(x=>x.id==='"+id+"');return e.lifecycleStatus==='active'&&calc(e).total===3000&&document.querySelector('#detail')?.textContent.includes('Сохранённая работа')})()","restore preserves rows and totals");
+   js("(()=>{api('estimateLifecycle',{project:pid,id:'"+id+"',change:'archive'});api('estimateLifecycle',{project:pid,id:'"+id+"',change:'delete',confirmed:true,relatedAcknowledged:true,confirmationName:'Смета жизненного цикла'});api('state');selectedEstimateId='';projectPage();return true})()");
+   check("(()=>{let e=current().estimates.find(x=>x.id==='"+id+"');return e.lifecycleStatus==='deleted'&&e.lines.length===1&&e.executionStages.length===1&&!availableEstimates(current(),'active').includes(e)&&!availableEstimates(current(),'archived').includes(e)})()","soft delete retains history and excludes lists");
+   backup("lifecycle-deleted.arhilab");
+   result.putString("stream","ARHILAB_LIFECYCLE_ARCHIVED_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
+  if(mode.equals("lifecycleDeleted")){
+   String id=new String(read("lifecycle-id.txt"),StandardCharsets.UTF_8);
+   js("openProject(S.projects.find(x=>x.name==='Smoke project').id)");
+   check("(()=>{let e=current().estimates.find(x=>x.id==='"+id+"');return e.lifecycleStatus==='deleted'&&e.lines.length===1&&!availableEstimates(current(),'active').includes(e)&&!availableEstimates(current(),'archived').includes(e)})()","tombstone persists after restart and stays hidden");
+   result.putString("stream","ARHILAB_LIFECYCLE_DELETED_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
   if(mode.equals("screenshots")){
    for(int i=0;i<100&&!"true".equals(js("typeof ui08Quick==='function'&&!!document.querySelector('nav .quick-add')"));i++)Thread.sleep(100);
    check("typeof ui08Quick==='function'&&!!document.querySelector('nav .quick-add')","new navigation rendered after cold start");
@@ -124,7 +153,7 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_UPGRADE_PREPARE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("f6Verify")||mode.equals("f6Restart")){
-   check("api('about').versionCode===12&&api('about').schemaVersion===9&&api('session').active","signed in-place migration and session");
+   check("api('about').versionCode===13&&api('about').schemaVersion===10&&api('session').active","signed in-place migration and session");
    JSONObject before=new JSONObject(new String(read("f6-before.json"),StandardCharsets.UTF_8)),after=f6Snapshot();
    if(!before.toString().equals(after.toString()))throw new Exception("F6→F7 data changed: "+before+" versus "+after);
    check("S.projects.length===2&&S.projects[0].estimates.length===2&&S.projects[0].expenses.length===1&&S.projects[0].procurementRequests.length===1&&S.projects[0].procurementReceipts.length===1","F6 identities, estimates, F3-F6 preserved");
@@ -135,7 +164,7 @@ public class Smoke extends Instrumentation {
    }else result.putString("stream","ARHILAB_F6_F7_RESTART_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("upgradeVerify")){
-   check("api('about').version==='0.8.0-alpha1'&&api('about').versionCode===12&&api('about').schemaVersion===9","0.8.0-alpha1 local schema retained");
+   check("api('about').version==='0.8.0-alpha2'&&api('about').versionCode===13&&api('about').schemaVersion===10","0.8.0-alpha2 local schema retained");
    check("S?.user?.role==='admin'&&api('session').active","admin session survives installation update");
    JSONObject before=new JSONObject(new String(read("upgrade-before.json"),StandardCharsets.UTF_8)),after=snapshot();
    write("upgrade-after.json",after.toString().getBytes(StandardCharsets.UTF_8));
@@ -179,7 +208,7 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_UPGRADE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("upgradeRestart")){
-   check("api('about').schemaVersion===9&&api('session').active","encrypted data and session reopen");
+   check("api('about').schemaVersion===10&&api('session').active","encrypted data and session reopen");
    JSONObject before=new JSONObject(new String(read("upgrade-before.json"),StandardCharsets.UTF_8));
    assertLegacy(before);
    check("S.projects.length===2&&S.projects[0].estimates.length===2&&S.projects[0].procurementRequests.length===1&&S.projects[0].procurementReceipts.length===1&&S.projects[0].clientDocuments.length===2","F1-F7 data remains after restart without duplicates");
@@ -200,7 +229,7 @@ public class Smoke extends Instrumentation {
   check("S.user.role==='admin'","admin account created through form");
   check("C.materials.length===254","catalog 254 SKU");
   check("C.works.filter(w=>w.tiers.standard.materialIds.length).length===110","110 linked works");
-  check("C.works.length===389&&api('about').schemaVersion===9&&C.works.find(w=>w.name==='Монтаж душевого трапа').price===6500","389 works, shower drain 6500 and current data schema");
+  check("C.works.length===389&&api('about').schemaVersion===10&&C.works.find(w=>w.name==='Монтаж душевого трапа').price===6500","389 works, shower drain 6500 and current data schema");
   // A pre-0.6 row has no key, tier, or estimatePhotos. Insert through the same encrypted save routine.
   Field dbField=activity.getClass().getDeclaredField("db");dbField.setAccessible(true);JSONObject db=(JSONObject)dbField.get(activity);
   JSONObject legacy=new JSONObject("{\"id\":\"11111111-1111-4111-8111-111111111111\",\"name\":\"Legacy estimate\",\"address\":\"Legacy address\",\"status\":\"Новый\",\"lines\":[{\"id\":\"22222222-2222-4222-8222-222222222222\",\"name\":\"Legacy work\",\"unit\":\"м²\",\"qty\":10,\"coef\":1,\"price\":100,\"cost\":60,\"autoMaterial\":false}],\"materials\":[],\"payments\":[],\"tasks\":[],\"notes\":[],\"photos\":[]}");
@@ -227,7 +256,7 @@ public class Smoke extends Instrumentation {
   check("api('integrity').report.issues.length===0","read-only integrity report has no findings");
   Method backupMethod=activity.getClass().getDeclaredMethod("fullBackupContent");backupMethod.setAccessible(true);
   JSONObject complete=(JSONObject)backupMethod.invoke(activity);
-  if(!complete.optString("format").equals("Arhilab-2")||complete.optInt("schemaVersion")!=9||complete.toString().contains("sessionHash")||complete.toString().contains(smokePassword))throw new Exception("Unsafe or incomplete backup");
+  if(!complete.optString("format").equals("Arhilab-2")||complete.optInt("schemaVersion")!=10||complete.toString().contains("sessionHash")||complete.toString().contains(smokePassword))throw new Exception("Unsafe or incomplete backup");
   char[] backupPassword=java.util.UUID.randomUUID().toString().toCharArray();
   byte[] ciphertext=BackupCrypto.encrypt(complete.toString().getBytes("UTF-8"),backupPassword);
   JSONObject roundtrip=new JSONObject(new String(BackupCrypto.decrypt(ciphertext,backupPassword),"UTF-8"));
