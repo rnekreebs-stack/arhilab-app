@@ -1,7 +1,8 @@
 'use strict';
 // Presentation only. The local Native bridge, calculation engine and persisted records stay unchanged.
 const ui08PreviousRender=render,ui08PreviousProjectPage=projectPage,ui08PreviousTasks=tasks,
- ui08PreviousMaterials=materials,ui08PreviousEstimate=estimate,ui08PreviousPhotos=photos,ui08PreviousSettings=settings;
+ ui08PreviousMaterials=materials,ui08PreviousEstimate=estimate,ui08PreviousPhotos=photos,ui08PreviousSettings=settings,ui08PreviousSyncLabel=syncLabel;
+syncLabel=function(summary){return summary?.connected?ui08PreviousSyncLabel(summary):'На телефоне'};
 let ui08Query='',ui08Status='all',ui08Sort='recent';
 const ui08Date=()=>new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
 const ui08Progress=p=>{const t=p.tasks||[];return t.length?Math.round(t.reduce((n,x)=>n+Math.max(0,Math.min(100,Number(x.progress??(x.done?100:0))||0)),0)/t.length):0};

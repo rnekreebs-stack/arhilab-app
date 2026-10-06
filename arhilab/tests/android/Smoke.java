@@ -36,7 +36,7 @@ public class Smoke extends Instrumentation {
  }return new JSONObject().put("projects",out);}
  File fixture(String name){File dir=getTargetContext().getFilesDir();if(!dir.isDirectory()&&!dir.mkdirs())throw new IllegalStateException("Cannot create smoke fixture directory");return new File(dir,name);}
  void write(String name,byte[] bytes)throws Exception{try(FileOutputStream out=new FileOutputStream(fixture(name))){out.write(bytes);out.getFD().sync();}}
- void screen(String name)throws Exception{Thread.sleep(450);Bitmap image=getUiAutomation().takeScreenshot();if(image==null)throw new Exception("Screenshot unavailable: "+name);try(FileOutputStream out=new FileOutputStream(fixture("ui08-"+name+".png"))){if(!image.compress(Bitmap.CompressFormat.PNG,100,out))throw new Exception("Screenshot write: "+name);}finally{image.recycle();}}
+ void screen(String name)throws Exception{Thread.sleep(1300);Bitmap image=getUiAutomation().takeScreenshot();if(image==null)throw new Exception("Screenshot unavailable: "+name);try(FileOutputStream out=new FileOutputStream(fixture("ui08-"+name+".png"))){if(!image.compress(Bitmap.CompressFormat.PNG,100,out))throw new Exception("Screenshot write: "+name);}finally{image.recycle();}}
  byte[] read(String name)throws Exception{try(FileInputStream in=new FileInputStream(fixture(name));ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toByteArray();}}
  JSONObject snapshot()throws Exception{
   JSONArray result=new JSONArray(),projects=database().getJSONArray("projects");
@@ -89,11 +89,11 @@ public class Smoke extends Instrumentation {
   String smokePassword=java.util.UUID.randomUUID().toString();
   if(mode.equals("screenshots")){
    check("S?.user?.role==='admin'&&S.projects.length>0","screenshots use signed-in local dataset");
-   js("go('home')");screen("today");
-   js("go('projects')");screen("projects");
-   js("openProject(S.projects[0].id)");screen("object");
-   for(String[] item:new String[][]{{"estimate","estimate"},{"materials","materials"},{"tasks","stages"},{"payments","payments"},{"documents","documents"}}){js("tab='"+item[0]+"';projectPage()");screen(item[1]);}
-   js("go('settings')");screen("settings");
+   js("go('home')");check("page==='home'&&document.querySelector('#app h1')?.textContent==='Сегодня'","Today rendered");screen("today");
+   js("go('projects')");check("page==='projects'&&!!document.querySelector('#projectList')","project list rendered");screen("projects");
+   js("openProject(S.projects[0].id)");check("page==='project'&&tab==='estimate'&&!!document.querySelector('#detail')","object rendered");screen("object");
+   for(String[] item:new String[][]{{"estimate","estimate"},{"materials","materials"},{"tasks","stages"},{"payments","payments"},{"documents","documents"}}){js("(()=>{tab='"+item[0]+"';projectPage();return true})()");check("tab==='"+item[0]+"'&&document.querySelector('#detail')?.textContent.length>0",item[1]+" rendered");screen(item[1]);}
+   js("go('settings')");check("page==='settings'&&document.querySelector('#app h1')?.textContent==='Настройки'","settings rendered");screen("settings");
    result.putString("stream","ARHILAB_UI08_SCREENSHOTS_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("upgradePrepare")||mode.equals("f6Prepare")){
