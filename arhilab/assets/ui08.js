@@ -64,4 +64,4 @@ function ui08SearchPage(){let q=ui08Query.toLocaleLowerCase('ru-RU'),ps=S.projec
 function ui08OpenDocument(projectId,estimateId){openProject(projectId,'documents');if(estimateId){selectedEstimateId=estimateId;projectPage()}}
 function ui08SearchUpdate(v){ui08Query=v;ui08SearchPage();$('globalSearch')?.focus()}
 // app.js authenticates before the later UI scripts load; replace its first paint on a resumed session.
-if(S)render();
+if(S&&$('nav').children.length)render();
