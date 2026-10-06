@@ -88,6 +88,8 @@ public class Smoke extends Instrumentation {
   launch();
   String smokePassword=java.util.UUID.randomUUID().toString();
   if(mode.equals("screenshots")){
+   for(int i=0;i<100&&!"true".equals(js("typeof ui08Quick==='function'&&!!document.querySelector('nav .quick-add')"));i++)Thread.sleep(100);
+   check("typeof ui08Quick==='function'&&!!document.querySelector('nav .quick-add')","new navigation rendered after cold start");
    check("S?.user?.role==='admin'&&S.projects.length>0","screenshots use signed-in local dataset");
    js("go('home')");check("page==='home'&&document.querySelector('#app h1')?.textContent==='Сегодня'","Today rendered");screen("today");
    js("go('projects')");check("page==='projects'&&!!document.querySelector('#projectList')","project list rendered");screen("projects");
