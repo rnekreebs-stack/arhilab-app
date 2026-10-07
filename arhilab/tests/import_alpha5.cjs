@@ -11,7 +11,9 @@ let multi=parse('Демонтаж\n№  Наименование  Ед.  Кол�
 let incomplete=parse('Шпаклёвка стен | м2 | 50 | 700');assert.equal(incomplete.rows.length,1);assert.equal(incomplete.rows[0].needsReview,true);
 let unknown=parse('Неизвестная работа | шт. | 1 | 850 | 850');assert.equal(unknown.rows.length,1);assert.equal(unknown.rows[0].candidate,null);
 let wrapped=parse('Наименование  Ед.  Количество  Цена  Сумма\nМонтаж перегородки\nиз ГКЛ\nв два слоя | м² | 20 | 1200 | 24000');assert.equal(wrapped.rows.length,1);assert.equal(wrapped.rows[0].name,'Монтаж перегородки из ГКЛ в два слоя');
+let prose=parse('Стоимость материалов может изменяться\nШпаклёвка стен | м² | 50 | 700 | 35000');assert.equal(prose.rows.length,1);assert.equal(prose.rows[0].name,'Шпаклёвка стен');assert.equal(prose.visualRows[0].type,'PLAIN_TEXT');
 let words=['Шпаклёвка','стен','под','покраску','м²','50','700','35000'].map((text,i)=>({text,x:i*105,y:i%2?101:100,width:95,height:20,order:i}));let geom=p.parse([{page:1,words,text:words.map(w=>w.text).join('\n')}],works);assert.equal(geom.rows.length,1);assert.equal(geom.rows[0].name,'Шпаклёвка стен под покраску');
+assert.equal(p.parse([{page:1,words:words.map(w=>({...w,confidence:30}))}],works).rows[0].confidence,'LOW');
 let big=p.parse(Array.from({length:20},(_,n)=>page('Наименование  Ед.  Количество  Цена  Сумма\n'+Array.from({length:10},(_,i)=>`${n*10+i+1}  Работа ${i+1}  шт.  2  10  20`).join('\n')+(n===19?'\nИтого 4000':''),n+1)),works);assert.equal(big.rows.length,200);assert.equal(big.total,4000);
 assert.equal(p.number('1.250,50'),1250.5);assert.equal(p.unit('кв.м'),'м²');
 console.log('Alpha5 layout: plain text, geometry, sections, totals, multiline, 200 rows and repeated headers OK');
