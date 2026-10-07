@@ -156,7 +156,7 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_ALPHA4_SESSION_PREPARE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("alpha5SessionVerify")){
-   check("api('about').versionCode===16&&api('importState').importSession.rows[0].id==='pending-alpha4'","alpha4 import session survives upgrade");
+   check("api('about').versionCode===17&&api('importState').importSession.rows[0].id==='pending-alpha4'","alpha4 import session survives upgrade");
    check("api('session').active","local login survives upgrade");
    result.putString("stream","ARHILAB_ALPHA5_SESSION_VERIFY_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
@@ -203,7 +203,7 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_UPGRADE_PREPARE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("f6Verify")||mode.equals("f6Restart")){
-   check("api('about').versionCode===16&&api('about').schemaVersion===10&&api('session').active","signed in-place migration and session");
+   check("api('about').versionCode===17&&api('about').schemaVersion===10&&api('session').active","signed in-place migration and session");
    JSONObject before=new JSONObject(new String(read("f6-before.json"),StandardCharsets.UTF_8)),after=f6Snapshot();
    if(!before.toString().equals(after.toString()))throw new Exception("F6→F7 data changed: "+before+" versus "+after);
    check("S.projects.length===2&&S.projects[0].estimates.length===2&&S.projects[0].expenses.length===1&&S.projects[0].procurementRequests.length===1&&S.projects[0].procurementReceipts.length===1","F6 identities, estimates, F3-F6 preserved");
@@ -214,7 +214,7 @@ public class Smoke extends Instrumentation {
    }else result.putString("stream","ARHILAB_F6_F7_RESTART_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("upgradeVerify")){
-   check("api('about').version==='0.8.0-alpha5'&&api('about').versionCode===16&&api('about').schemaVersion===10","0.8.0-alpha3 local schema retained");
+   check("api('about').version==='0.8.0-alpha6'&&api('about').versionCode===17&&api('about').schemaVersion===10","0.8.0-alpha3 local schema retained");
    check("S?.user?.role==='admin'&&api('session').active","admin session survives installation update");
    check("typeof a3Empty==='function'&&typeof window.ui08DocumentsHub==='function'","updated visual assets loaded after in-place upgrade");
    JSONObject before=new JSONObject(new String(read("upgrade-before.json"),StandardCharsets.UTF_8)),after=snapshot();
@@ -264,6 +264,20 @@ public class Smoke extends Instrumentation {
    assertLegacy(before);
    check("S.projects.length===2&&S.projects[0].estimates.length===2&&S.projects[0].procurementRequests.length===1&&S.projects[0].procurementReceipts.length===1&&S.projects[0].clientDocuments.length===2","F1-F7 data remains after restart without duplicates");
    result.putString("stream","ARHILAB_UPGRADE_RESTART_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
+  if(mode.equals("premiumPdf")){
+   check("(()=>{let p=S.projects[0],e=p.estimates[1],o={materials:'detailed',showQuantity:true,showUnitPrice:true,showRowTotal:true,showSectionTotals:true,showGrandTotal:true,includePhotos:false};let r=api('premiumPreview',{project:p.id,estimateId:e.id,type:'COMMERCIAL_OFFER',settings:o,pageIndex:0}).preview;return r.pageCount>=3&&r.data.startsWith('data:image/png;base64,')})()","premium preview is a rendered PDF page");
+   js("premiumShow(api('premiumPreview',{pageIndex:0}).preview)");screen("premium-pdf-cover");js("premiumPreviewPage(1)");screen("premium-pdf-section");js("closeModal()");
+   check("(()=>{let p=S.projects[0],r=api('premiumCreate',{project:p.id}).document;window.premiumId=r.id;return r.premium&&r.status==='final'&&r.fileSize>1000&&r.fileName.startsWith('ARHILAB_КП_')&&api('f7List',{project:p.id,estimateId:r.estimateId}).documents.some(x=>x.id===r.id)})()","premium PDF saved as versioned project document");
+   Class<?> renderer=getTargetContext().getClassLoader().loadClass("ru.arhilab.estimate.PremiumPdf"),source=getTargetContext().getClassLoader().loadClass("ru.arhilab.estimate.PremiumPdf$ImageSource");
+   Method render=renderer.getDeclaredMethod("render",File.class,JSONObject.class,source);render.setAccessible(true);Method preview=renderer.getDeclaredMethod("preview",File.class,int.class);preview.setAccessible(true);
+   JSONObject base=F7DocumentFromDb(database(),0),sample=new JSONObject(base.toString());sample.put("type","COMMERCIAL_OFFER");JSONObject settings=sample.getJSONObject("snapshot").getJSONObject("settings");settings.put("materials","detailed").put("includePhotos",false).put("showSectionTotals",true).put("showGrandTotal",true);
+   File examples=new File(getTargetContext().getExternalFilesDir(null),"pdf-examples");examples.mkdirs();
+   for(int size:new int[]{5,50,200}){JSONObject d=new JSONObject(sample.toString());d.put("id",UUID.randomUUID().toString());JSONObject snapshot=d.getJSONObject("snapshot");JSONArray rows=new JSONArray();for(int n=0;n<size;n++)rows.put(new JSONObject().put("title","Монтаж перегородки из гипсокартона в два слоя, длинная работа №"+n).put("section","Работы").put("unit","м²").put("quantity","12").put("unitPrice","400000").put("total",n==0?"5000000":"4800000").put("note",n==0?"Документальная сумма сохранена без умножения на количество":""));snapshot.put("works",rows).put("materials",new JSONArray()).put("sections",new JSONArray().put(new JSONObject().put("title","Работы").put("workTotal","5000000").put("materialTotal","0").put("total","5000000"))).put("workTotal","5000000").put("workMarkup","0").put("materialTotal","0").put("total","5000000");
+    File pdf=(File)render.invoke(null,getTargetContext().getCacheDir(),d,null);JSONObject image=(JSONObject)preview.invoke(null,pdf,0);if(image.getInt("pageCount")<(size==200?10:3)||!image.getString("data").startsWith("data:image/png;base64,"))throw new Exception("Premium PDF pagination: "+size);java.nio.file.Files.copy(pdf.toPath(),new File(examples,"arhilab-"+size+"-rows.pdf").toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+   }
+   JSONObject summary=new JSONObject(sample.toString());summary.put("id",UUID.randomUUID().toString());JSONArray sections=new JSONArray();for(int n=0;n<15;n++)sections.put(new JSONObject().put("title","Раздел "+(n+1)).put("workTotal","100").put("materialTotal","0").put("total","100"));summary.getJSONObject("snapshot").put("sections",sections).put("works",new JSONArray()).put("total","1500");summary.getJSONObject("snapshot").getJSONObject("settings").put("onlySectionTotals",true);File only=(File)render.invoke(null,getTargetContext().getCacheDir(),summary,null);if(((JSONObject)preview.invoke(null,only,0)).getInt("pageCount")!=4)throw new Exception("Only totals summary pagination");java.nio.file.Files.copy(only.toPath(),new File(examples,"arhilab-only-totals.pdf").toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+   report("PREMIUM_PDF_PASS samples: 5, 50, 200 rows, 15 sections, only totals, Cyrillic, document total");result.putString("stream","ARHILAB_PREMIUM_PDF_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(resume){
    check("api('status').setup===false","existing admin after process cold restart");

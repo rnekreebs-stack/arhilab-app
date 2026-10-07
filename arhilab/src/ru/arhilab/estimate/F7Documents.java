@@ -40,7 +40,8 @@ final class F7Documents {
         return new JSONObject().put("title",item.optString("name")).put("section",item.optString("section",item.optString("category","Общие работы")))
             .put("kind",kind).put("unit",item.optString("unit","шт."))
             .put("quantity",qty.toPlainString()).put("coefficient",coef.toPlainString())
-            .put("unitPrice",price==null?"":cents(price).toPlainString()).put("total",cents(total).toPlainString());
+            .put("unitPrice",price==null?"":cents(price).toPlainString()).put("total",cents(total).toPlainString())
+            .put("note",item.optString("note",""));
     }
     static JSONObject project(JSONObject project,String estimateId,String type,JSONObject settings)throws Exception {
         boolean known=false;for(String t:TYPES)if(t.equals(type))known=true;
@@ -88,9 +89,13 @@ final class F7Documents {
         }
         JSONObject options=new JSONObject().put("materials",mode).put("showMaterialPrices",showPrices)
             .put("showSections",settings.optBoolean("showSections",true));
-        for(String field:new String[]{"paymentTerms","timeline","warranty","note","companyDetails"}){
+        for(String flag:new String[]{"showQuantity","showUnitPrice","showRowTotal","showSectionTotals","showGrandTotal","hideLinePrices","onlySectionTotals","includePhotos","includeTimeline","includeNotes","includeCompanyDetails","includeSignatures"})
+            options.put(flag,settings.optBoolean(flag,flag.equals("showQuantity")||flag.equals("showUnitPrice")||flag.equals("showRowTotal")||flag.equals("showSectionTotals")||flag.equals("showGrandTotal")||flag.equals("includePhotos")||flag.equals("includeTimeline")||flag.equals("includeNotes")));
+        for(String field:new String[]{"paymentTerms","timeline","warranty","note","companyDetails","startDate","workingDays","phone","email","site","taxId"}){
             String value=settings.optString(field,"");if(value.length()>2000)throw new IllegalArgumentException("Текст слишком длинный");options.put(field,value);
         }
+        String coverId=settings.optString("coverPhotoId","");if(!coverId.isEmpty())UUID.fromString(coverId);options.put("coverPhotoId",coverId);
+        JSONObject sectionPhotoIds=settings.optJSONObject("sectionPhotoIds"),safePhotos=new JSONObject();if(sectionPhotoIds!=null){if(sectionPhotoIds.length()>30)throw new IllegalArgumentException("Слишком много фото разделов");for(java.util.Iterator<String> it=sectionPhotoIds.keys();it.hasNext();){String title=it.next(),id=sectionPhotoIds.optString(title);if(title.length()>250)throw new IllegalArgumentException("Название раздела слишком длинное");UUID.fromString(id);safePhotos.put(title,id);}}options.put("sectionPhotoIds",safePhotos);
         JSONObject safe=new JSONObject().put("type",type).put("estimateId",estimateId)
             .put("projectName",project.optString("name")).put("address",project.optString("address"))
             .put("clientName",project.optString("client")).put("estimateName",estimate.optBoolean("legacy")?"Исходная смета":estimate.optString("name"))

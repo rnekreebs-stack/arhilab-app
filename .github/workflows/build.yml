@@ -1,4 +1,4 @@
-name: Arhilab Смета 0.8.0 alpha5 Android
+name: Arhilab Смета 0.8.0 alpha6 Android
 on:
   workflow_dispatch:
   push:
@@ -120,6 +120,16 @@ jobs:
           SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore" bash "$RUNNER_TEMP/arhilab-alpha4-baseline/arhilab/build.sh" debug
           cp "$RUNNER_TEMP/arhilab-alpha4-baseline/output/Arhilab-Смета-0.8.0-alpha4-debug.apk" output/upgrade-baseline-alpha4-debug.apk
           diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*debug.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-alpha4-baseline/output/Arhilab-Смета-0.8.0-alpha4-debug.apk.signature.txt")
+      - name: Build alpha5 upgrade baseline with permanent Debug key
+        env:
+          SIGNING_STORE_PASSWORD: android
+          SIGNING_KEY_PASSWORD: android
+          SIGNING_KEY_ALIAS: androiddebugkey
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/arhilab-alpha5-baseline" b204c8bcd0065da58868adbd369bce6218a4351e
+          SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore" bash "$RUNNER_TEMP/arhilab-alpha5-baseline/arhilab/build.sh" debug
+          cp "$RUNNER_TEMP/arhilab-alpha5-baseline/output/Arhilab-Смета-0.8.0-alpha5-debug.apk" output/upgrade-baseline-alpha5-debug.apk
+          diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*debug.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-alpha5-baseline/output/Arhilab-Смета-0.8.0-alpha5-debug.apk.signature.txt")
       - name: Build optional signed Release APK
         id: release
         env:
@@ -182,22 +192,22 @@ jobs:
         run: |
           mkdir -p output
           printf 'commit=%s\nrun=%s\nurl=%s/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > output/build-provenance.txt
-          cat output/Arhilab-Смета-0.8.0-alpha5-*.sha256 2>/dev/null || true
-          grep -E 'Verified using v[23] scheme|Signer #1 certificate SHA-256 digest' output/Arhilab-Смета-0.8.0-alpha5-*.signature.txt 2>/dev/null || true
+          cat output/Arhilab-Смета-0.8.0-alpha6-*.sha256 2>/dev/null || true
+          grep -E 'Verified using v[23] scheme|Signer #1 certificate SHA-256 digest' output/Arhilab-Смета-0.8.0-alpha6-*.signature.txt 2>/dev/null || true
       - name: Downloadable APK
         if: always() && steps.debug.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: arhilab-0.8.0-alpha5-debug-apk
-          path: output/Arhilab-Смета-0.8.0-alpha5-debug.apk
+          name: arhilab-0.8.0-alpha6-debug-apk
+          path: output/Arhilab-Смета-0.8.0-alpha6-debug.apk
           if-no-files-found: error
           retention-days: 30
       - name: Downloadable signed Release APK
         if: steps.release.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: arhilab-0.8.0-alpha5-release-apk
-          path: output/Arhilab-Смета-0.8.0-alpha5-release.apk
+          name: arhilab-0.8.0-alpha6-release-apk
+          path: output/Arhilab-Смета-0.8.0-alpha6-release.apk
           if-no-files-found: error
           retention-days: 30
       - name: Verification reports
