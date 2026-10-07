@@ -1,6 +1,6 @@
 # Arhilab Смета
 
-Стабильная версия в `main`: **0.7.0**. Ветка `arhilab-0.8.0-ui-local` содержит предварительную **0.8.0-alpha2** (`versionCode 13`); она не объединена с `main`. Внешний сервер для этого обновления не нужен. См. [заметки об alpha2](RELEASE_0.8.0-alpha2.md) и [первом preview](RELEASE_0.8.0-alpha1.md).
+Стабильная версия в `main`: **0.7.0**. Ветка `arhilab-0.8.0-ui-local` содержит предварительную **0.8.0-alpha3** (`versionCode 14`); она не объединена с `main`. Внешний сервер для этого обновления не нужен. См. [заметки об alpha3](RELEASE_0.8.0-alpha3.md) и [первом preview](RELEASE_0.8.0-alpha1.md).
 
 Стабильная версия Android-приложения: **0.7.0** (`versionCode 11`), package `ru.arhilab.estimate`. Исходники: `arhilab/` (Native Android Java + WebView); серверная часть: `backend/` (Node.js 22, TypeScript, PostgreSQL 17). Каталог содержит 254 SKU, 389 работ и 110 автоматических комплектов.
 

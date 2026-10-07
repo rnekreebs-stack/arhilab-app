@@ -9,7 +9,7 @@ adb logcat -c
 adb shell am instrument -w -e mode upgradePrepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-upgrade-prepare.txt
 grep -q ARHILAB_UPGRADE_PREPARE_PASS output/android-upgrade-prepare.txt
 adb shell am force-stop ru.arhilab.estimate
-adb install -r output/Arhilab-Смета-0.8.0-alpha2-debug.apk | tee output/android-upgrade-install.txt
+adb install -r output/Arhilab-Смета-0.8.0-alpha3-debug.apk | tee output/android-upgrade-install.txt
 grep -q Success output/android-upgrade-install.txt
 adb shell am instrument -w -e mode upgradeVerify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-upgrade-verify.txt
 grep -q ARHILAB_UPGRADE_PASS output/android-upgrade-verify.txt
@@ -20,7 +20,11 @@ for restart in 1 2; do
 done
 # A separate clean-install scenario starts after the in-place upgrade assertions passed.
 adb uninstall ru.arhilab.estimate
-adb install output/Arhilab-Смета-0.8.0-alpha2-debug.apk
+adb install output/Arhilab-Смета-0.8.0-alpha3-debug.apk
+adb shell am instrument -w -e mode loginScreenshot ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a3-login.txt
+grep -q ARHILAB_A3_LOGIN_PASS output/android-a3-login.txt
+adb exec-out run-as ru.arhilab.estimate cat files/ui08-login.png > output/ui08-login.png
+test -s output/ui08-login.png
 adb shell cmd connectivity airplane-mode enable
 adb shell svc wifi disable
 adb shell svc data disable
@@ -53,7 +57,7 @@ adb install output/upgrade-baseline-f6-debug.apk
 adb shell am instrument -w -e mode f6Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-f6-debug-before.txt
 grep -q ARHILAB_F6_PREPARE_PASS output/android-f6-debug-before.txt
 adb shell am force-stop ru.arhilab.estimate
-adb install -r output/Arhilab-Смета-0.8.0-alpha2-debug.apk | tee output/android-f6-debug-install.txt
+adb install -r output/Arhilab-Смета-0.8.0-alpha3-debug.apk | tee output/android-f6-debug-install.txt
 grep -q Success output/android-f6-debug-install.txt
 adb shell am instrument -w -e mode f6Verify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-f6-debug-after.txt
 grep -q ARHILAB_F6_F7_UPGRADE_PASS output/android-f6-debug-after.txt
@@ -71,7 +75,7 @@ if [[ -f output/upgrade-baseline-0.6.2-release.apk ]]; then
   adb shell am instrument -w -e mode upgradePrepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-release-upgrade-prepare.txt
   grep -q ARHILAB_UPGRADE_PREPARE_PASS output/android-release-upgrade-prepare.txt
   adb shell am force-stop ru.arhilab.estimate
-  adb install -r output/Arhilab-Смета-0.8.0-alpha2-release.apk | tee output/android-release-upgrade-install.txt
+  adb install -r output/Arhilab-Смета-0.8.0-alpha3-release.apk | tee output/android-release-upgrade-install.txt
   grep -q Success output/android-release-upgrade-install.txt
   adb shell am instrument -w -e mode upgradeVerify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-release-upgrade-verify.txt
   grep -q ARHILAB_UPGRADE_PASS output/android-release-upgrade-verify.txt
@@ -83,7 +87,7 @@ if [[ -f output/upgrade-baseline-0.6.2-release.apk ]]; then
   adb shell am instrument -w -e mode f6Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-f6-release-before.txt
   grep -q ARHILAB_F6_PREPARE_PASS output/android-f6-release-before.txt
   adb shell am force-stop ru.arhilab.estimate
-  adb install -r output/Arhilab-Смета-0.8.0-alpha2-release.apk | tee output/android-f6-release-install.txt
+  adb install -r output/Arhilab-Смета-0.8.0-alpha3-release.apk | tee output/android-f6-release-install.txt
   grep -q Success output/android-f6-release-install.txt
   adb shell am instrument -w -e mode f6Verify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-f6-release-after.txt
   grep -q ARHILAB_F6_F7_UPGRADE_PASS output/android-f6-release-after.txt
@@ -92,7 +96,7 @@ if [[ -f output/upgrade-baseline-0.6.2-release.apk ]]; then
   grep -q ARHILAB_F6_F7_RESTART_PASS output/android-f6-release-restart.txt
 fi
 
-# Stable 0.7.0 -> 0.8.0-alpha2 signed in-place upgrade, preserving F1-F6 records.
+# Stable 0.7.0 -> 0.8.0-alpha3 signed in-place upgrade, preserving F1-F6 records.
 adb uninstall ru.arhilab.estimate.smoke || true
 adb uninstall ru.arhilab.estimate || true
 adb install output/upgrade-baseline-0.7.0-debug.apk
@@ -100,7 +104,7 @@ adb install arhilab/build/smoke/smoke.apk
 adb shell am instrument -w -e mode f6Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-070-before.txt
 grep -q ARHILAB_F6_PREPARE_PASS output/android-070-before.txt
 adb shell am force-stop ru.arhilab.estimate
-adb install -r output/Arhilab-Смета-0.8.0-alpha2-debug.apk | tee output/android-080-upgrade-install.txt
+adb install -r output/Arhilab-Смета-0.8.0-alpha3-debug.apk | tee output/android-080-upgrade-install.txt
 grep -q Success output/android-080-upgrade-install.txt
 adb shell am instrument -w -e mode f6Verify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-080-upgrade-after.txt
 grep -q ARHILAB_F6_F7_UPGRADE_PASS output/android-080-upgrade-after.txt
@@ -109,11 +113,20 @@ adb shell am instrument -w -e mode f6Restart ru.arhilab.estimate.smoke/ru.arhila
 grep -q ARHILAB_F6_F7_RESTART_PASS output/android-080-upgrade-restart.txt
 adb shell am instrument -w -e mode screenshots ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-ui08-screenshots.txt
 grep -q ARHILAB_UI08_SCREENSHOTS_PASS output/android-ui08-screenshots.txt
-for screen in today projects object estimate materials stages payments documents settings; do
+for screen in today projects object estimates estimate materials stages payments documents photos settings archive empty; do
   adb exec-out run-as ru.arhilab.estimate cat "files/ui08-$screen.png" > "output/ui08-$screen.png"
   test -s "output/ui08-$screen.png"
 done
-test "$(sha256sum output/ui08-{today,projects,object,estimate,materials,stages,payments,documents,settings}.png | cut -d' ' -f1 | sort -u | wc -l)" -eq 9
+test "$(find output -maxdepth 1 -name 'ui08-*.png' | wc -l)" -ge 14
+adb shell am instrument -w -e mode uiPerformance ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a3-webview-performance.txt
+grep -q ARHILAB_A3_PERFORMANCE_PASS output/android-a3-webview-performance.txt
+adb shell settings put system accelerometer_rotation 0
+adb shell settings put system user_rotation 1
+sleep 2
+adb shell am instrument -w -e mode landscapeCheck ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a3-landscape.txt
+grep -q ARHILAB_A3_LANDSCAPE_PASS output/android-a3-landscape.txt
+adb exec-out run-as ru.arhilab.estimate cat files/ui08-landscape.png > output/ui08-landscape.png
+adb shell settings put system user_rotation 0
 if [[ -f output/upgrade-baseline-0.7.0-release.apk ]]; then
   adb uninstall ru.arhilab.estimate.smoke || true
   adb uninstall ru.arhilab.estimate || true
@@ -122,8 +135,34 @@ if [[ -f output/upgrade-baseline-0.7.0-release.apk ]]; then
   adb shell am instrument -w -e mode f6Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-070-release-before.txt
   grep -q ARHILAB_F6_PREPARE_PASS output/android-070-release-before.txt
   adb shell am force-stop ru.arhilab.estimate
-  adb install -r output/Arhilab-Смета-0.8.0-alpha2-release.apk | tee output/android-080-release-install.txt
+  adb install -r output/Arhilab-Смета-0.8.0-alpha3-release.apk | tee output/android-080-release-install.txt
   grep -q Success output/android-080-release-install.txt
   adb shell am instrument -w -e mode f6Verify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-080-release-after.txt
   grep -q ARHILAB_F6_F7_UPGRADE_PASS output/android-080-release-after.txt
+fi
+
+# Alpha2 -> alpha3 signed update without uninstalling, retaining archived and tombstoned estimates.
+adb uninstall ru.arhilab.estimate.smoke || true
+adb uninstall ru.arhilab.estimate || true
+adb install output/upgrade-baseline-alpha2-debug.apk
+adb install arhilab/build/smoke/smoke.apk
+adb shell am instrument -w -e mode alpha2Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a3-alpha2-before.txt
+grep -q ARHILAB_UPGRADE_PREPARE_PASS output/android-a3-alpha2-before.txt
+adb shell am force-stop ru.arhilab.estimate
+adb install -r output/Arhilab-Смета-0.8.0-alpha3-debug.apk | tee output/android-a3-alpha2-install.txt
+grep -q Success output/android-a3-alpha2-install.txt
+adb shell am instrument -w -e mode upgradeVerify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a3-alpha2-after.txt
+grep -q ARHILAB_UPGRADE_PASS output/android-a3-alpha2-after.txt
+if [[ -f output/upgrade-baseline-alpha2-release.apk ]]; then
+  adb uninstall ru.arhilab.estimate.smoke || true
+  adb uninstall ru.arhilab.estimate || true
+  adb install output/upgrade-baseline-alpha2-release.apk
+  adb install arhilab/build/smoke/release-smoke.apk
+  adb shell am instrument -w -e mode alpha2Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a3-alpha2-release-before.txt
+  grep -q ARHILAB_UPGRADE_PREPARE_PASS output/android-a3-alpha2-release-before.txt
+  adb shell am force-stop ru.arhilab.estimate
+  adb install -r output/Arhilab-Смета-0.8.0-alpha3-release.apk | tee output/android-a3-alpha2-release-install.txt
+  grep -q Success output/android-a3-alpha2-release-install.txt
+  adb shell am instrument -w -e mode upgradeVerify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a3-alpha2-release-after.txt
+  grep -q ARHILAB_UPGRADE_PASS output/android-a3-alpha2-release-after.txt
 fi

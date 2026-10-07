@@ -90,6 +90,22 @@ public class Smoke extends Instrumentation {
  public void onStart(){Bundle result=new Bundle();try{
   launch();
   String smokePassword=java.util.UUID.randomUUID().toString();
+  if(mode.equals("loginScreenshot")){
+   for(int i=0;i<100&&!"true".equals(js("!!document.querySelector('.a3-login')"));i++)Thread.sleep(100);
+   check("api('status').setup===true&&!!document.querySelector('.a3-login')","alpha3 login shown on clean install");
+   screen("login");result.putString("stream","ARHILAB_A3_LOGIN_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
+  if(mode.equals("landscapeCheck")){
+   js("go('projects')");check("window.innerWidth>window.innerHeight&&document.documentElement.scrollWidth<=window.innerWidth+2","landscape projects fit viewport");screen("landscape");
+   js("openProject(S.projects[0].id)");check("document.documentElement.scrollWidth<=window.innerWidth+2&&!!document.querySelector('.estimate-list')","landscape estimate fits viewport");
+   result.putString("stream","ARHILAB_A3_LANDSCAPE_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
+  if(mode.equals("uiPerformance")){
+   js("(()=>{let saved=S.projects,base=JSON.parse(JSON.stringify(saved[0])),ps=Array.from({length:100},(_,i)=>({...base,id:'perf-'+i,name:'Проект '+i,estimates:[]}));S.projects=ps;page='projects';let t=performance.now();render();let projectsMs=performance.now()-t,shown=document.querySelectorAll('#projectList .project-card').length;let lines=Array.from({length:1200},(_,i)=>({id:'line-'+i,name:'Работа '+i,qty:1,coef:1,price:100,unit:'шт'})),materials=Array.from({length:500},(_,i)=>({id:'material-'+i,name:'Материал '+i,qty:1,price:20,unit:'шт'}));let e={id:'perf-estimate',name:'Большая смета',legacy:false,lines,materials,delivery:0,discount:0,workMarkupPercent:'0'},p={...base,id:'perf-project',estimates:[e]};S.projects=[p];pid=p.id;selectedEstimateId=e.id;estimateViewMode='active';document.querySelector('#app').innerHTML='<div id=detail></div>';t=performance.now();estimate(p);let estimateMs=performance.now()-t,rendered=document.querySelectorAll('#detail .estimate-line').length,total=calc(e).total;let docs=Array.from({length:500},(_,i)=>({id:'doc-'+i,number:'КП-'+i,type:'COMMERCIAL_OFFER',version:1,status:'draft',snapshot:{total:100}}));p.clientDocuments=docs;t=performance.now();ui08DocumentsHub();let documentsMs=performance.now()-t,docShown=document.querySelectorAll('#app .document-card').length;window.a3Perf={projectsMs,estimateMs,documentsMs,shown,rendered,docShown,total};api('state');page='home';render();return true})()");
+   check("window.a3Perf.shown===40&&window.a3Perf.rendered===120&&window.a3Perf.docShown===60&&window.a3Perf.total===130000","chunked 100 projects, 1200 works, 500 materials, 500 documents");
+   check("window.a3Perf.projectsMs<5000&&window.a3Perf.estimateMs<5000&&window.a3Perf.documentsMs<5000","WebView rendering completes without long freeze");
+   report("WebView render ms "+js("JSON.stringify(window.a3Perf)"));result.putString("stream","ARHILAB_A3_PERFORMANCE_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
   if(mode.equals("lifecyclePrepare")){
    js("(()=>{let p=S.projects.find(x=>x.name==='Smoke project');openProject(p.id);let r=api('estimateCreate',{project:p.id,name:'Смета жизненного цикла'});window.lifecycleId=r.estimateId;api('estimateManualWork',{project:p.id,estimate:r.estimateId,name:'Сохранённая работа',qty:2,coef:1,unit:'шт',price:1500});api('f4StageSave',{project:p.id,estimate:r.estimateId,name:'Связанный этап'});window.lifecycleTotal=calc(current().estimates.find(x=>x.id===r.estimateId)).total;selectedEstimateId=r.estimateId;projectPage();return true})()");
    check("document.querySelector('#detail')?.textContent.includes('Сохранённая работа')&&window.lifecycleTotal===3000","estimate created with row and total");
@@ -123,15 +139,18 @@ public class Smoke extends Instrumentation {
    js("go('home')");check("page==='home'&&document.querySelector('#app h1')?.textContent==='Сегодня'","Today rendered");screen("today");
    js("go('projects')");check("page==='projects'&&!!document.querySelector('#projectList')","project list rendered");screen("projects");
    js("openProject(S.projects[0].id)");check("page==='project'&&tab==='estimate'&&!!document.querySelector('#detail')","object rendered");screen("object");
-   for(String[] item:new String[][]{{"estimate","estimate"},{"materials","materials"},{"tasks","stages"},{"payments","payments"},{"documents","documents"}}){js("(()=>{tab='"+item[0]+"';projectPage();document.querySelector('#detail').scrollIntoView();return true})()");check("tab==='"+item[0]+"'&&document.querySelector('#detail')?.textContent.length>0",item[1]+" rendered");screen(item[1]);}
+   js("document.querySelector('.estimate-list').scrollIntoView()");screen("estimates");
+   for(String[] item:new String[][]{{"estimate","estimate"},{"materials","materials"},{"tasks","stages"},{"payments","payments"},{"documents","documents"},{"photos","photos"}}){js("(()=>{tab='"+item[0]+"';projectPage();document.querySelector('#detail').scrollIntoView();return true})()");check("tab==='"+item[0]+"'&&document.querySelector('#detail')?.textContent.length>0",item[1]+" rendered");screen(item[1]);}
    js("go('settings')");check("page==='settings'&&document.querySelector('#app h1')?.textContent==='Настройки'","settings rendered");screen("settings");
+   js("(()=>{openProject(S.projects[0].id);let e=api('estimateCreate',{project:pid,name:'Архив для снимка'});api('estimateLifecycle',{project:pid,id:e.estimateId,change:'archive'});api('state');estimateViewMode='archived';selectedEstimateId=e.estimateId;projectPage();document.querySelector('.estimate-list').scrollIntoView();return true})()");screen("archive");
+   js("(()=>{go('projects');ui08Query='НЕСУЩЕСТВУЮЩИЙ_ОБЪЕКТ';filterProjects(ui08Query);return true})()");screen("empty");ui08Query="";
    result.putString("stream","ARHILAB_UI08_SCREENSHOTS_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
-  if(mode.equals("upgradePrepare")||mode.equals("f6Prepare")){
+  if(mode.equals("upgradePrepare")||mode.equals("f6Prepare")||mode.equals("alpha2Prepare")){
    check("api('status').setup===true",mode.equals("f6Prepare")?"F6 baseline clean install":"0.6.2 baseline clean install");
    js("api('setup',{name:'Upgrade admin',password:"+JSONObject.quote(smokePassword)+"})");
    js("enter()");
-   check("api('session').active&&api('about').version==='"+(mode.equals("f6Prepare")?"0.7.0":"0.6.2")+"'","baseline admin registered and version verified");
+   check("api('session').active&&api('about').version==='"+(mode.equals("f6Prepare")?"0.7.0":mode.equals("alpha2Prepare")?"0.8.0-alpha2":"0.6.2")+"'","baseline admin registered and version verified");
    js("api('project',{name:'Upgrade A',address:'Address A',status:'Новый',delivery:0,discount:0,deliveryCost:0,overhead:0,otherCost:0})");
    js("api('line',{project:S.projects[0].id,work:C.works.find(w=>w.tiers.standard.materialIds.length).id,qty:3.5,coef:1,price:1234,autoMaterial:true,tier:'standard',cost:60})");
    js("api('line',{project:S.projects[0].id,work:C.works.find(w=>!w.tiers.standard.materialIds.length).id,qty:7,coef:1,price:9876,autoMaterial:false,tier:'standard',cost:50})");
@@ -153,7 +172,7 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_UPGRADE_PREPARE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("f6Verify")||mode.equals("f6Restart")){
-   check("api('about').versionCode===13&&api('about').schemaVersion===10&&api('session').active","signed in-place migration and session");
+   check("api('about').versionCode===14&&api('about').schemaVersion===10&&api('session').active","signed in-place migration and session");
    JSONObject before=new JSONObject(new String(read("f6-before.json"),StandardCharsets.UTF_8)),after=f6Snapshot();
    if(!before.toString().equals(after.toString()))throw new Exception("F6→F7 data changed: "+before+" versus "+after);
    check("S.projects.length===2&&S.projects[0].estimates.length===2&&S.projects[0].expenses.length===1&&S.projects[0].procurementRequests.length===1&&S.projects[0].procurementReceipts.length===1","F6 identities, estimates, F3-F6 preserved");
@@ -164,7 +183,7 @@ public class Smoke extends Instrumentation {
    }else result.putString("stream","ARHILAB_F6_F7_RESTART_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("upgradeVerify")){
-   check("api('about').version==='0.8.0-alpha2'&&api('about').versionCode===13&&api('about').schemaVersion===10","0.8.0-alpha2 local schema retained");
+   check("api('about').version==='0.8.0-alpha3'&&api('about').versionCode===14&&api('about').schemaVersion===10","0.8.0-alpha3 local schema retained");
    check("S?.user?.role==='admin'&&api('session').active","admin session survives installation update");
    JSONObject before=new JSONObject(new String(read("upgrade-before.json"),StandardCharsets.UTF_8)),after=snapshot();
    write("upgrade-after.json",after.toString().getBytes(StandardCharsets.UTF_8));

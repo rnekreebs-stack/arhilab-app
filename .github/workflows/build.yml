@@ -1,4 +1,4 @@
-name: Arhilab Смета 0.8.0 alpha2 Android
+name: Arhilab Смета 0.8.0 alpha3 Android
 on:
   workflow_dispatch:
   push:
@@ -86,6 +86,16 @@ jobs:
           SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore" bash "$RUNNER_TEMP/arhilab-070-baseline/arhilab/build.sh" debug
           cp "$RUNNER_TEMP/arhilab-070-baseline/output/Arhilab-Смета-0.7.0-F7-debug.apk" output/upgrade-baseline-0.7.0-debug.apk
           diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*debug.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-070-baseline/output/Arhilab-Смета-0.7.0-F7-debug.apk.signature.txt")
+      - name: Build 0.8.0-alpha2 upgrade baseline with permanent Debug key
+        env:
+          SIGNING_STORE_PASSWORD: android
+          SIGNING_KEY_PASSWORD: android
+          SIGNING_KEY_ALIAS: androiddebugkey
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/arhilab-alpha2-baseline" cc694da2272e5475c8e737a0e4d7ae11273d4727
+          SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore" bash "$RUNNER_TEMP/arhilab-alpha2-baseline/arhilab/build.sh" debug
+          cp "$RUNNER_TEMP/arhilab-alpha2-baseline/output/Arhilab-Смета-0.8.0-alpha2-debug.apk" output/upgrade-baseline-alpha2-debug.apk
+          diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*debug.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-alpha2-baseline/output/Arhilab-Смета-0.8.0-alpha2-debug.apk.signature.txt")
       - name: Build optional signed Release APK
         id: release
         env:
@@ -114,6 +124,9 @@ jobs:
           bash "$RUNNER_TEMP/arhilab-070-baseline/arhilab/build.sh" release
           cp "$RUNNER_TEMP/arhilab-070-baseline/output/Arhilab-Смета-0.7.0-F7-release.apk" output/upgrade-baseline-0.7.0-release.apk
           diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*release.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-070-baseline/output/Arhilab-Смета-0.7.0-F7-release.apk.signature.txt")
+          bash "$RUNNER_TEMP/arhilab-alpha2-baseline/arhilab/build.sh" release
+          cp "$RUNNER_TEMP/arhilab-alpha2-baseline/output/Arhilab-Смета-0.8.0-alpha2-release.apk" output/upgrade-baseline-alpha2-release.apk
+          diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*release.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-alpha2-baseline/output/Arhilab-Смета-0.8.0-alpha2-release.apk.signature.txt")
           bash arhilab/tests/android/build.sh
           cp arhilab/build/smoke/smoke.apk arhilab/build/smoke/release-smoke.apk
           echo 'available=true' >> "$GITHUB_OUTPUT"
@@ -149,16 +162,16 @@ jobs:
         if: always() && steps.debug.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: arhilab-0.8.0-alpha2-debug-apk
-          path: output/Arhilab-Смета-0.8.0-alpha2-debug.apk
+          name: arhilab-0.8.0-alpha3-debug-apk
+          path: output/Arhilab-Смета-0.8.0-alpha3-debug.apk
           if-no-files-found: error
           retention-days: 30
       - name: Downloadable signed Release APK
         if: steps.release.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: arhilab-0.8.0-alpha2-release-apk
-          path: output/Arhilab-Смета-0.8.0-alpha2-release.apk
+          name: arhilab-0.8.0-alpha3-release-apk
+          path: output/Arhilab-Смета-0.8.0-alpha3-release.apk
           if-no-files-found: error
           retention-days: 30
       - name: Verification reports
