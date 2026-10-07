@@ -23,7 +23,7 @@ public class Smoke extends Instrumentation {
   activity=startActivitySync(intent);
   runOnMainSync(()->web=findWeb(activity.getWindow().getDecorView()));
   if(web==null)throw new Exception("No WebView: startup may have failed");
-  for(int i=0;i<100;i++){try{if("true".equals(js("typeof api==='function'")))return;}catch(Exception ignored){}Thread.sleep(100);}throw new Exception("First screen timeout");
+  for(int i=0;i<100;i++){try{if("true".equals(js("typeof api==='function'&&document.readyState==='complete'")))return;}catch(Exception ignored){}Thread.sleep(100);}throw new Exception("First screen timeout");
  }
  String js(String script)throws Exception{CountDownLatch done=new CountDownLatch(1);AtomicReference<String> value=new AtomicReference<>();runOnMainSync(()->web.evaluateJavascript("(()=>{try{return "+script+"}catch(e){return 'SMOKE_ERROR:'+e.message}})()",s->{value.set(s);done.countDown();}));if(!done.await(15,TimeUnit.SECONDS))throw new Exception("WebView JS timeout");String s=value.get();if(s!=null&&s.contains("SMOKE_ERROR:"))throw new Exception(s);return s;}
  void check(String expression,String label)throws Exception{if(!"true".equals(js(expression)))throw new Exception(label+": "+js(expression));report(label);}
@@ -133,8 +133,8 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_LIFECYCLE_DELETED_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("screenshots")){
-   for(int i=0;i<100&&!"true".equals(js("typeof ui08Quick==='function'&&!!document.querySelector('nav .quick-add')"));i++)Thread.sleep(100);
-   check("typeof ui08Quick==='function'&&!!document.querySelector('nav .quick-add')","new navigation rendered after cold start");
+   for(int i=0;i<100&&!"true".equals(js("typeof ui08Quick==='function'&&typeof a3Empty==='function'&&!!document.querySelector('nav .quick-add')"));i++)Thread.sleep(100);
+   check("typeof ui08Quick==='function'&&typeof a3Empty==='function'&&!!document.querySelector('nav .quick-add')","new navigation rendered after cold start");
    check("S?.user?.role==='admin'&&S.projects.length>0","screenshots use signed-in local dataset");
    js("go('home')");check("page==='home'&&document.querySelector('#app h1')?.textContent==='Сегодня'","Today rendered");screen("today");
    js("go('projects')");check("page==='projects'&&!!document.querySelector('#projectList')","project list rendered");screen("projects");
