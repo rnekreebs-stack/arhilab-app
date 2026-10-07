@@ -143,7 +143,7 @@ public class Smoke extends Instrumentation {
    for(String[] item:new String[][]{{"estimate","estimate"},{"materials","materials"},{"tasks","stages"},{"payments","payments"},{"documents","documents"},{"photos","photos"}}){js("(()=>{tab='"+item[0]+"';projectPage();document.querySelector('#detail').scrollIntoView();return true})()");check("tab==='"+item[0]+"'&&document.querySelector('#detail')?.textContent.length>0",item[1]+" rendered");screen(item[1]);}
    js("go('settings')");check("page==='settings'&&document.querySelector('#app h1')?.textContent==='Настройки'","settings rendered");screen("settings");
    js("(()=>{openProject(S.projects[0].id);let e=api('estimateCreate',{project:pid,name:'Архив для снимка'});api('estimateLifecycle',{project:pid,id:e.estimateId,change:'archive'});api('state');estimateViewMode='archived';selectedEstimateId=e.estimateId;projectPage();document.querySelector('.estimate-list').scrollIntoView();return true})()");screen("archive");
-   js("(()=>{go('projects');ui08Query='НЕСУЩЕСТВУЮЩИЙ_ОБЪЕКТ';filterProjects(ui08Query);return true})()");screen("empty");ui08Query="";
+   js("(()=>{go('projects');ui08Query='НЕСУЩЕСТВУЮЩИЙ_ОБЪЕКТ';filterProjects(ui08Query);return true})()");screen("empty");js("ui08Query=''");
    result.putString("stream","ARHILAB_UI08_SCREENSHOTS_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("upgradePrepare")||mode.equals("f6Prepare")||mode.equals("alpha2Prepare")){
