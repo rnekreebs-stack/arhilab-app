@@ -175,11 +175,11 @@ public class Smoke extends Instrumentation {
    JSONObject created=database().getJSONArray("projects").getJSONObject(database().getJSONArray("projects").length()-1);if(created.getJSONArray("sourceDocuments").getJSONObject(0).getInt("pageCount")!=1||created.getJSONArray("sourceDocuments").getJSONObject(0).getJSONArray("rawOcr").getJSONObject(0).getJSONArray("words").length()==0)throw new Exception("Source OCR metadata missing");backup("import-alpha4.arhilab");js("(()=>{let e=selectedEstimate(current());api('estimateLifecycle',{project:pid,id:e.id,change:'archive'});api('estimateLifecycle',{project:pid,id:e.id,change:'restore'});return true})()");check("selectedEstimate(current()).lifecycleStatus==='active'","imported estimate archive and restore");
    result.putString("stream","ARHILAB_IMPORT_ALPHA4_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
-  if(mode.equals("upgradePrepare")||mode.equals("f6Prepare")||mode.equals("alpha2Prepare")||mode.equals("alpha3Prepare")){
+  if(mode.equals("upgradePrepare")||mode.equals("f6Prepare")||mode.equals("alpha2Prepare")||mode.equals("alpha3Prepare")||mode.equals("alpha4Prepare")){
    check("api('status').setup===true",mode.equals("f6Prepare")?"F6 baseline clean install":"0.6.2 baseline clean install");
    js("api('setup',{name:'Upgrade admin',password:"+JSONObject.quote(smokePassword)+"})");
    js("enter()");
-   check("api('session').active&&api('about').version==='"+(mode.equals("f6Prepare")?"0.7.0":mode.equals("alpha2Prepare")?"0.8.0-alpha2":mode.equals("alpha3Prepare")?"0.8.0-alpha3":"0.6.2")+"'","baseline admin registered and version verified");
+   check("api('session').active&&api('about').version==='"+(mode.equals("f6Prepare")?"0.7.0":mode.equals("alpha2Prepare")?"0.8.0-alpha2":mode.equals("alpha3Prepare")?"0.8.0-alpha3":mode.equals("alpha4Prepare")?"0.8.0-alpha4":"0.6.2")+"'","baseline admin registered and version verified");
    js("api('project',{name:'Upgrade A',address:'Address A',status:'Новый',delivery:0,discount:0,deliveryCost:0,overhead:0,otherCost:0})");
    js("api('line',{project:S.projects[0].id,work:C.works.find(w=>w.tiers.standard.materialIds.length).id,qty:3.5,coef:1,price:1234,autoMaterial:true,tier:'standard',cost:60})");
    js("api('line',{project:S.projects[0].id,work:C.works.find(w=>!w.tiers.standard.materialIds.length).id,qty:7,coef:1,price:9876,autoMaterial:false,tier:'standard',cost:50})");

@@ -191,7 +191,7 @@ adb uninstall ru.arhilab.estimate.smoke || true
 adb uninstall ru.arhilab.estimate || true
 adb install output/upgrade-baseline-alpha4-debug.apk
 adb install arhilab/build/smoke/smoke.apk
-adb shell am instrument -w -e mode alpha3Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a5-alpha4-before.txt
+adb shell am instrument -w -e mode alpha4Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a5-alpha4-before.txt
 grep -q ARHILAB_UPGRADE_PREPARE_PASS output/android-a5-alpha4-before.txt
 adb shell am instrument -w -e mode alpha4SessionPrepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a5-alpha4-session-before.txt
 grep -q ARHILAB_ALPHA4_SESSION_PREPARE_PASS output/android-a5-alpha4-session-before.txt
