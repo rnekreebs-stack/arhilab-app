@@ -35,11 +35,12 @@ final class F7Documents {
     static BigDecimal cents(BigDecimal n){return n.setScale(2,RoundingMode.HALF_UP);}
     static JSONObject row(JSONObject item,String kind)throws Exception {
         BigDecimal qty=dec(item,"qty","0"),coef=kind.equals("work")?dec(item,"coef","1"):BigDecimal.ONE;
-        BigDecimal price=dec(item,"price","0");
-        return new JSONObject().put("title",item.optString("name")).put("section",item.optString("category","Общие работы"))
+        BigDecimal price=item.isNull("price")?null:dec(item,"price","0");
+        BigDecimal total=item.has("importedAmount")&&!item.isNull("importedAmount")?dec(item,"importedAmount","0"):price==null?BigDecimal.ZERO:price.multiply(qty).multiply(coef);
+        return new JSONObject().put("title",item.optString("name")).put("section",item.optString("section",item.optString("category","Общие работы")))
             .put("kind",kind).put("unit",item.optString("unit","шт."))
             .put("quantity",qty.toPlainString()).put("coefficient",coef.toPlainString())
-            .put("unitPrice",cents(price).toPlainString()).put("total",cents(price.multiply(qty).multiply(coef)).toPlainString());
+            .put("unitPrice",price==null?"":cents(price).toPlainString()).put("total",cents(total).toPlainString());
     }
     static JSONObject project(JSONObject project,String estimateId,String type,JSONObject settings)throws Exception {
         boolean known=false;for(String t:TYPES)if(t.equals(type))known=true;
