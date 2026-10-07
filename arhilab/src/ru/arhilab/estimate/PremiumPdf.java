@@ -32,7 +32,7 @@ final class PremiumPdf {
     private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);private Canvas c;
     private final JSONObject doc,s,settings;private final ImageSource photos;
     private final ArrayList<Sheet> sheets=new ArrayList<>();
-    static final class Sheet {String title;int part,count;List<JSONObject> rows;JSONObject section;boolean cover,summary,details;Sheet(String name){title=name;rows=new ArrayList<>();}}
+    static final class Sheet {String title,photoId;int part,count;List<JSONObject> rows;JSONObject section;boolean cover,summary,details,photoFeature;Sheet(String name){title=name;rows=new ArrayList<>();}}
     private PremiumPdf(JSONObject d,ImageSource images)throws Exception{doc=d;s=d.getJSONObject("snapshot");settings=s.getJSONObject("settings");photos=images;}
     private void paint(int color,float size,boolean bold){p.setColor(color);p.setTextSize(size);p.setTypeface(Typeface.create("sans-serif",bold?Typeface.BOLD:Typeface.NORMAL));p.setStyle(Paint.Style.FILL);}
     private void label(String text,float x,float y,int color,float size,boolean bold){paint(color,size,bold);c.drawText(text==null?"":text,x,y,p);}
@@ -41,6 +41,7 @@ final class PremiumPdf {
     private void rule(float x,float y,float x2,int color){fill(x,y,x2,y+0.7f,color);}
     private String money(String n){try{NumberFormat f=NumberFormat.getNumberInstance(new Locale("ru","RU"));f.setMinimumFractionDigits(0);f.setMaximumFractionDigits(2);return f.format(new BigDecimal(n)).replace('\u00a0',' ').replace('\u202f',' ')+" ₽";}catch(Exception e){return "—";}}
     private String clean(String text){return (text==null?"":text).replace('\r',' ').replace('\n',' ').replaceAll("\\s+"," ").trim();}
+    private boolean imageAvailable(String id){if(photos==null||id.isEmpty())return false;try{byte[] bytes=photos.get(id);if(bytes==null||bytes.length>24*1024*1024)return false;BitmapFactory.Options options=new BitmapFactory.Options();options.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);return options.outWidth>0&&options.outHeight>0;}catch(Exception ignored){return false;}}
     private List<String> wrap(String text,float width,float size,boolean bold){paint(WHITE,size,bold);ArrayList<String> lines=new ArrayList<>();StringBuilder current=new StringBuilder();for(String word:clean(text).split(" ")){
         if(word.isEmpty())continue;String proposed=current.length()==0?word:current+" "+word;
         if(p.measureText(proposed)>width&&current.length()>0){lines.add(current.toString());current.setLength(0);}
@@ -62,7 +63,11 @@ final class PremiumPdf {
                 int h=rowHeight(row,settings.optBoolean("showQuantity",true),settings.optBoolean("showUnitPrice",true)&&!settings.optBoolean("hideLinePrices"),settings.optBoolean("showRowTotal",true)&&!settings.optBoolean("hideLinePrices"));
                 if(used+h>BOTTOM-TOP-40&&sheet.rows.size()>0){sheets.add(sheet);sheet=new Sheet(group.getKey());sheet.section=section;used=0;}
                 sheet.rows.add(row);used+=h;
-            }sheets.add(sheet);int count=sheets.size()-first;for(int j=first;j<sheets.size();j++){sheets.get(j).part=j-first+1;sheets.get(j).count=count;}
+            }sheets.add(sheet);
+            JSONObject photoMap=settings.optJSONObject("sectionPhotoIds");String selectedPhoto=settings.optBoolean("includePhotos",true)&&photoMap!=null?photoMap.optString(group.getKey()):"";if(!imageAvailable(selectedPhoto))selectedPhoto="";
+            if(!selectedPhoto.isEmpty()){int firstHeight=0;for(JSONObject row:sheets.get(first).rows)firstHeight+=rowHeight(row,settings.optBoolean("showQuantity",true),settings.optBoolean("showUnitPrice",true)&&!settings.optBoolean("hideLinePrices"),settings.optBoolean("showRowTotal",true)&&!settings.optBoolean("hideLinePrices"));
+                if(firstHeight>150){Sheet photoPage=new Sheet(group.getKey());photoPage.photoFeature=true;photoPage.photoId=selectedPhoto;photoPage.section=section;sheets.add(first,photoPage);}}
+            int count=sheets.size()-first;for(int j=first;j<sheets.size();j++){sheets.get(j).part=j-first+1;sheets.get(j).count=count;}
         }}
         // Summary rows are paginated separately so fifteen or more sections remain legible.
         int perPage=6;int pages=Math.max(1,(sections.length()+perPage-1)/perPage);
@@ -104,11 +109,12 @@ final class PremiumPdf {
         if(sheet.part==1&&settings.optBoolean("includePhotos",true)&&y+125<455){String photo=settings.optJSONObject("sectionPhotoIds")==null?"":settings.optJSONObject("sectionPhotoIds").optString(sheet.title);if(!photo.isEmpty())photograph(photo,RIGHT-265,y+8,265,120);}
         if(sheet.part==sheet.count&&settings.optBoolean("showSectionTotals",true)&&sheet.section!=null){String amount=sheet.section.optString("total");if(amount.isEmpty())amount=sheet.section.optString("workTotal");fill(LEFT,464,RIGHT,500,GOLD);label("ИТОГО "+sheet.title.toUpperCase(new Locale("ru","RU")),LEFT+14,487,BG,15,true);right(money(amount),RIGHT-14,490,BG,23,true);}
     }
+    private void featuredPhoto(Sheet sheet)throws Exception{label("РАЗДЕЛ ПРОЕКТА",LEFT,128,GOLD,12,true);photograph(sheet.photoId,LEFT,150,RIGHT-LEFT,315);}
     private void summary(Sheet sheet)throws Exception{JSONArray sections=s.getJSONArray("sections");int begin=(sheet.part-1)*6,end=Math.min(sections.length(),begin+6),y=145;label("№",LEFT,y,GOLD,10,true);label("РАЗДЕЛ",LEFT+38,y,GOLD,10,true);label("СОСТАВ",LEFT+320,y,GOLD,10,true);right("СТОИМОСТЬ",RIGHT,y,GOLD,10,true);rule(LEFT,y+8,RIGHT,Color.rgb(89,82,69));y+=30;
         for(int i=begin;i<end;i++){JSONObject section=sections.getJSONObject(i);String amount=section.optString("total");if(amount.isEmpty())amount=section.optString("workTotal");fill(LEFT,y-17,RIGHT,y+5,i%2==0?PANEL:BG);label(String.format(Locale.ROOT,"%02d",i+1),LEFT+6,y,MUTED,10,false);
             List<String> name=wrap(section.optString("title"),270,11,true);label(name.get(0),LEFT+38,y,WHITE,11,true);label("Работы"+(section.optString("materialTotal").isEmpty()?"":" и материалы"),LEFT+320,y,MUTED,10,false);right(money(amount),RIGHT-7,y,WHITE,12,true);y+=25;}
         if(sheet.part==sheet.count){y=Math.max(y+8,345);label("ИТОГО РАБОТЫ",LEFT,y,WHITE,13,true);right(money(new BigDecimal(s.optString("workTotal","0")).add(new BigDecimal(s.optString("workMarkup","0"))).toPlainString()),RIGHT,y,WHITE,14,true);y+=27;
-            if(!s.optString("materialTotal").isEmpty()){label("ИТОГО МАТЕРИАЛЫ",LEFT,y,WHITE,13,true);right(money(s.optString("materialTotal")),RIGHT,y,WHITE,14,true);y+=27;}
+            if(!s.optString("materialTotal").isEmpty()&&new BigDecimal(s.optString("materialTotal")).signum()!=0){label("ИТОГО МАТЕРИАЛЫ",LEFT,y,WHITE,13,true);right(money(s.optString("materialTotal")),RIGHT,y,WHITE,14,true);y+=27;}
             if(new BigDecimal(s.optString("delivery","0")).signum()!=0){label("ДОСТАВКА",LEFT,y,WHITE,13,true);right(money(s.optString("delivery")),RIGHT,y,WHITE,14,true);y+=27;}
             if(new BigDecimal(s.optString("discount","0")).signum()!=0){label("СКИДКА",LEFT,y,WHITE,13,true);right("−"+money(s.optString("discount")),RIGHT,y,WHITE,14,true);y+=27;}
             if(settings.optBoolean("showGrandTotal",true)){fill(LEFT,464,RIGHT,500,GOLD);label("ОБЩАЯ СТОИМОСТЬ ПРОЕКТА",LEFT+14,487,BG,15,true);right(money(s.optString("total")),RIGHT-14,490,BG,24,true);}
@@ -118,7 +124,7 @@ final class PremiumPdf {
     }
     private int detail(String title,String value,int y){label(title,LEFT,y,GOLD,10,true);int offset=0;for(String line:wrap(value,RIGHT-LEFT-250,13,false))label(line,LEFT+250,y+offset++*17,WHITE,13,false);rule(LEFT,y+Math.max(1,offset)*17+5,RIGHT,Color.rgb(66,65,60));return y+Math.max(1,offset)*17+24;}
     static File render(File root,JSONObject doc,ImageSource photos)throws Exception{java.util.UUID.fromString(doc.getString("id"));PremiumPdf renderer=new PremiumPdf(doc,photos);renderer.plan();File dir=new File(root,"premium-pdf");if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Недоступно место для PDF");File target=new File(dir,doc.getString("id")+".pdf"),tmp=new File(dir,doc.getString("id")+".tmp");PdfDocument pdf=new PdfDocument();try{
-        for(int i=0;i<renderer.sheets.size();i++){Sheet sheet=renderer.sheets.get(i);PdfDocument.Page page=pdf.startPage(new PdfDocument.PageInfo.Builder(W,H,i+1).create());renderer.c=page.getCanvas();renderer.frame(sheet,i+1);if(sheet.cover)renderer.cover(sheet);else if(sheet.summary)renderer.summary(sheet);else if(sheet.details)renderer.details(sheet);else renderer.section(sheet);pdf.finishPage(page);}
+        for(int i=0;i<renderer.sheets.size();i++){Sheet sheet=renderer.sheets.get(i);PdfDocument.Page page=pdf.startPage(new PdfDocument.PageInfo.Builder(W,H,i+1).create());renderer.c=page.getCanvas();renderer.frame(sheet,i+1);if(sheet.cover)renderer.cover(sheet);else if(sheet.summary)renderer.summary(sheet);else if(sheet.details)renderer.details(sheet);else if(sheet.photoFeature)renderer.featuredPhoto(sheet);else renderer.section(sheet);pdf.finishPage(page);}
         try(FileOutputStream out=new FileOutputStream(tmp)){pdf.writeTo(out);out.getFD().sync();}if(!tmp.renameTo(target))throw new IOException("Не удалось записать PDF");return target;
     }finally{pdf.close();tmp.delete();}}
     static JSONObject preview(File file,int pageIndex)throws Exception{try(ParcelFileDescriptor fd=ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY);PdfRenderer renderer=new PdfRenderer(fd)){

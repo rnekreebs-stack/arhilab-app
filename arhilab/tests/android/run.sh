@@ -209,7 +209,7 @@ for shot in premium-pdf-cover premium-pdf-section; do
   test -s "output/ui08-$shot.png"
 done
 mkdir -p output/pdf-examples
-for sample in arhilab-5-rows arhilab-50-rows arhilab-200-rows arhilab-only-totals arhilab-with-photo; do
+for sample in arhilab-5-rows arhilab-50-rows arhilab-200-rows arhilab-only-totals arhilab-with-photo arhilab-long-with-photo; do
   adb exec-out run-as ru.arhilab.estimate cat "files/pdf-examples/$sample.pdf" > "output/pdf-examples/$sample.pdf"
   test -s "output/pdf-examples/$sample.pdf"
 done
@@ -219,7 +219,7 @@ adb uninstall ru.arhilab.estimate.smoke || true
 adb uninstall ru.arhilab.estimate || true
 adb install output/upgrade-baseline-alpha5-debug.apk
 adb install arhilab/build/smoke/smoke.apk
-adb shell am instrument -w -e mode alpha4Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a6-alpha5-before.txt
+adb shell am instrument -w -e mode alpha5Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a6-alpha5-before.txt
 grep -q ARHILAB_UPGRADE_PREPARE_PASS output/android-a6-alpha5-before.txt
 adb shell am instrument -w -e mode alpha4SessionPrepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a6-alpha5-session-before.txt
 grep -q ARHILAB_ALPHA4_SESSION_PREPARE_PASS output/android-a6-alpha5-session-before.txt
