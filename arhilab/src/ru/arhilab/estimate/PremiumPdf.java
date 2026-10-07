@@ -39,7 +39,7 @@ final class PremiumPdf {
     private void right(String text,float x,float y,int color,float size,boolean bold){paint(color,size,bold);c.drawText(text,x-p.measureText(text),y,p);}
     private void fill(float x,float y,float x2,float y2,int color){paint(color,10,false);c.drawRect(x,y,x2,y2,p);}
     private void rule(float x,float y,float x2,int color){fill(x,y,x2,y+0.7f,color);}
-    private String money(String n){try{NumberFormat f=NumberFormat.getNumberInstance(new Locale("ru","RU"));f.setMinimumFractionDigits(0);f.setMaximumFractionDigits(2);return f.format(new BigDecimal(n))+" ₽";}catch(Exception e){return "—";}}
+    private String money(String n){try{NumberFormat f=NumberFormat.getNumberInstance(new Locale("ru","RU"));f.setMinimumFractionDigits(0);f.setMaximumFractionDigits(2);return f.format(new BigDecimal(n)).replace('\u00a0',' ').replace('\u202f',' ')+" ₽";}catch(Exception e){return "—";}}
     private String clean(String text){return (text==null?"":text).replace('\r',' ').replace('\n',' ').replaceAll("\\s+"," ").trim();}
     private List<String> wrap(String text,float width,float size,boolean bold){paint(WHITE,size,bold);ArrayList<String> lines=new ArrayList<>();StringBuilder current=new StringBuilder();for(String word:clean(text).split(" ")){
         if(word.isEmpty())continue;String proposed=current.length()==0?word:current+" "+word;
@@ -74,11 +74,11 @@ final class PremiumPdf {
             if(!detail.rows.isEmpty())sheets.add(detail);
         }
     }
-    private void frame(Sheet sheet,int page){c.drawColor(BG);label("ARHILAB",LEFT,38,WHITE,20,true);label("АРХИТЕКТУРА  •  СТРОИТЕЛЬСТВО  •  РЕМОНТ",LEFT,52,MUTED,8,false);right("ВСЁ ПРОСТРАНСТВО В ОДНИХ РУКАХ",RIGHT,37,GOLD,9,true);rule(LEFT,64,RIGHT,Color.rgb(89,82,69));
+    private void frame(Sheet sheet,int page){c.drawColor(BG);if(photos!=null)try{photograph("brand-logo",LEFT,15,35,39);}catch(Exception ignored){}label("ARHILAB",LEFT+45,38,WHITE,20,true);label("АРХИТЕКТУРА  •  СТРОИТЕЛЬСТВО  •  РЕМОНТ",LEFT+45,52,MUTED,8,false);right("ВСЁ ПРОСТРАНСТВО В ОДНИХ РУКАХ",RIGHT,37,GOLD,9,true);rule(LEFT,64,RIGHT,Color.rgb(89,82,69));
         if(!sheet.cover){String title=sheet.title.toUpperCase(new Locale("ru","RU"));for(String line:wrap(title,RIGHT-LEFT,28,true)){label(line,LEFT,96,WHITE,28,true);break;}fill(LEFT,108,70,110,GOLD);if(sheet.count>1)right(String.format(Locale.ROOT,"%02d / %02d",sheet.part,sheet.count),RIGHT,114,GOLD,10,true);}
         rule(LEFT,510,RIGHT,Color.rgb(73,70,65));label("ARHILAB / "+(doc.optString("type").equals("COMMERCIAL_OFFER")?"КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ":"СМЕТА"),LEFT,524,MUTED,8,false);right(String.format(Locale.ROOT,"%02d / %02d",page,sheets.size()),RIGHT,524,GOLD,9,true);
     }
-    private void photograph(String id,float x,float y,float w,float h)throws Exception{if(photos==null||id.isEmpty())return;byte[] bytes=photos.get(id);if(bytes==null||bytes.length>24*1024*1024)return;BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(bytes,0,bytes.length,o);o.inSampleSize=Math.max(1,Math.max(o.outWidth/1800,o.outHeight/1200));o.inJustDecodeBounds=false;Bitmap bitmap=BitmapFactory.decodeByteArray(bytes,0,bytes.length,o);if(bitmap==null)return;float scale=Math.max(w/bitmap.getWidth(),h/bitmap.getHeight()),bw=w/scale,bh=h/scale;float sx=(bitmap.getWidth()-bw)/2,sy=(bitmap.getHeight()-bh)/2;
+    private void photograph(String id,float x,float y,float w,float h)throws Exception{if(photos==null||id.isEmpty())return;byte[] bytes;try{bytes=photos.get(id);}catch(Exception unavailable){return;}if(bytes==null||bytes.length>24*1024*1024)return;BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(bytes,0,bytes.length,o);o.inSampleSize=Math.max(1,Math.max(o.outWidth/1800,o.outHeight/1200));o.inJustDecodeBounds=false;Bitmap bitmap=BitmapFactory.decodeByteArray(bytes,0,bytes.length,o);if(bitmap==null)return;float scale=Math.max(w/bitmap.getWidth(),h/bitmap.getHeight()),bw=w/scale,bh=h/scale;float sx=(bitmap.getWidth()-bw)/2,sy=(bitmap.getHeight()-bh)/2;
         c.save();c.clipRect(x,y,x+w,y+h);p.setFilterBitmap(true);p.setAlpha(255);c.drawBitmap(bitmap,new android.graphics.Rect(Math.round(sx),Math.round(sy),Math.round(sx+bw),Math.round(sy+bh)),new RectF(x,y,x+w,y+h),p);c.restore();bitmap.recycle();}
     private void cover(Sheet sheet)throws Exception{String photo=settings.optBoolean("includePhotos",true)?settings.optString("coverPhotoId"):"";
         if(!photo.isEmpty())photograph(photo,570,92,356,343);

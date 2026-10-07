@@ -184,6 +184,28 @@ jobs:
           profile: pixel_2
           disable-animations: true
           script: bash arhilab/tests/android/run.sh
+      - name: Inspect generated proposal PDFs
+        run: |
+          command -v pdfinfo >/dev/null && command -v pdftotext >/dev/null
+          for file in output/pdf-examples/*.pdf; do
+            pdfinfo "$file" | grep -q 'Page size:.*960 x 540 pts'
+            pdftotext "$file" "${file%.pdf}.txt"
+            grep -q 'ARHILAB' "${file%.pdf}.txt"
+            ! grep -Ei 'закупочн|себестоим|маржа|валовая прибыль|операционная прибыль' "${file%.pdf}.txt"
+          done
+          grep -q '5 000 000' output/pdf-examples/arhilab-5-rows.txt
+          ! grep -q '60 000 000' output/pdf-examples/arhilab-5-rows.txt
+          test "$(pdfinfo output/pdf-examples/arhilab-200-rows.pdf | awk '/^Pages:/{print $2}')" -ge 20
+      - name: Generated PDFs and preview screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arhilab-PDF-examples-${{ github.run_number }}
+          path: |
+            output/pdf-examples/*.pdf
+            output/*premium-pdf*.png
+          if-no-files-found: warn
+          retention-days: 30
       - name: Remove temporary signing material
         if: always()
         run: rm -f "$RUNNER_TEMP/arhilab-debug.keystore" "$RUNNER_TEMP/arhilab-release.p12"
