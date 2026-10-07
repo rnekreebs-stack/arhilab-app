@@ -41,6 +41,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Prepare offline OCR dependency for Android compilation
+        run: bash arhilab/prepare-ocr.sh
       - name: Compile Android application sources without signing or packaging
         working-directory: .
         run: |
@@ -51,7 +53,7 @@ jobs:
           fi
           mkdir -p /tmp/arhilab-f1-classes
           javac -encoding UTF-8 -source 8 -target 8 \
-            -classpath "$sdk_root/platforms/android-35/android.jar" \
+            -classpath "$sdk_root/platforms/android-35/android.jar:$GITHUB_WORKSPACE/.ci-ocr/classes.jar" \
             -d /tmp/arhilab-f1-classes arhilab/src/ru/arhilab/estimate/*.java
       - name: F1 Android local migration and durable queue regression
         working-directory: .
