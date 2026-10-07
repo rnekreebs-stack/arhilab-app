@@ -47,7 +47,7 @@ final class ImportEngine {
   prepareModels();TessBaseAPI tess=new TessBaseAPI();if(!tess.init(new File(dir,"tesseract").getAbsolutePath(),"rus+eng")){tess.recycle();throw new IOException("Локальная модель OCR недоступна");}
   JSONArray result=new JSONArray();try{for(int i=0;i<pages.length();i++){if(progress.cancelled())throw new IOException("Распознавание отменено");JSONObject source=pages.getJSONObject(i);progress.page(i+1,pages.length());Bitmap b=bitmap(source.getString("fileId"),source.optBoolean("pdf"),source.optInt("index"),2400);
    try{Bitmap cropped=cropped(b,source.optJSONArray("crop")),scan=rotated(cropped,source.optInt("rotation"));try{tess.setImage(scan);String text=tess.getUTF8Text();result.put(new JSONObject().put("page",i+1).put("text",text==null?"":text).put("ocrConfidence",tess.meanConfidence()));}finally{if(scan!=cropped)scan.recycle();if(cropped!=b)cropped.recycle();}}finally{b.recycle();}}
-  }finally{tess.recycle();}return result;
+  }finally{tess.recycle();}boolean found=false;for(int i=0;i<result.length();i++)if(!result.getJSONObject(i).optString("text").trim().isEmpty())found=true;if(!found)throw new IOException("Текст не найден. Проверьте качество страниц и повторите распознавание.");return result;
  }
  interface Progress{void page(int current,int total)throws Exception;boolean cancelled();}
 }

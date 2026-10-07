@@ -190,7 +190,7 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_UPGRADE_PREPARE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("f6Verify")||mode.equals("f6Restart")){
-   check("api('about').versionCode===14&&api('about').schemaVersion===10&&api('session').active","signed in-place migration and session");
+   check("api('about').versionCode===15&&api('about').schemaVersion===10&&api('session').active","signed in-place migration and session");
    JSONObject before=new JSONObject(new String(read("f6-before.json"),StandardCharsets.UTF_8)),after=f6Snapshot();
    if(!before.toString().equals(after.toString()))throw new Exception("F6→F7 data changed: "+before+" versus "+after);
    check("S.projects.length===2&&S.projects[0].estimates.length===2&&S.projects[0].expenses.length===1&&S.projects[0].procurementRequests.length===1&&S.projects[0].procurementReceipts.length===1","F6 identities, estimates, F3-F6 preserved");

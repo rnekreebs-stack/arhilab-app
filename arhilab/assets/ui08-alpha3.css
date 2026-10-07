@@ -38,3 +38,6 @@ dialog{border-radius:18px;box-shadow:var(--shadow-float)}dialog.bottom-sheet{pos
 #import4Root .quick-grid{display:grid;grid-template-columns:1fr;gap:10px}
 #import4Root .card .row{min-width:0}
 #import4Root .card .row span:first-child{overflow-wrap:anywhere}
+#import4Root .row{flex-wrap:wrap}
+#import4Root .row span:last-child{display:flex;flex-wrap:wrap;gap:4px}
+#import4Root .row button{min-width:42px;padding:8px}

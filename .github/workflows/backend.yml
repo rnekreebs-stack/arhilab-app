@@ -42,6 +42,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Prepare offline OCR dependency for Android compilation
+        working-directory: .
         run: bash arhilab/prepare-ocr.sh
       - name: Compile Android application sources without signing or packaging
         working-directory: .
