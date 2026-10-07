@@ -5,6 +5,9 @@ import android.os.*;
 import android.view.*;
 import android.webkit.*;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.pdf.PdfDocument;
 import org.json.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
@@ -146,11 +149,26 @@ public class Smoke extends Instrumentation {
    js("(()=>{go('projects');ui08Query='НЕСУЩЕСТВУЮЩИЙ_ОБЪЕКТ';filterProjects(ui08Query);return true})()");screen("empty");js("ui08Query=''");
    result.putString("stream","ARHILAB_UI08_SCREENSHOTS_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
-  if(mode.equals("upgradePrepare")||mode.equals("f6Prepare")||mode.equals("alpha2Prepare")){
+  if(mode.equals("importAlpha4")){
+   check("S?.user?.role==='admin'&&typeof Import4==='object'","alpha4 signed-in offline import");
+   js("(()=>{go('home');ui08Quick();return true})()");screen("import-menu");js("(()=>{closeModal();import4Start();return true})()");screen("import-source");
+   Class<?> engineType=getTargetContext().getClassLoader().loadClass("ru.arhilab.estimate.ImportEngine");Method getEngine=activity.getClass().getDeclaredMethod("imports");getEngine.setAccessible(true);Object engine=getEngine.invoke(activity);Method put=engineType.getDeclaredMethod("put",String.class,InputStream.class);put.setAccessible(true);
+   Bitmap image=Bitmap.createBitmap(1200,1600,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(image);canvas.drawColor(-1);Paint paint=new Paint(3);paint.setColor(0xff111111);paint.setTextSize(75);canvas.drawText("20  500  10000",80,350,paint);ByteArrayOutputStream jpg=new ByteArrayOutputStream();image.compress(Bitmap.CompressFormat.JPEG,95,jpg);image.recycle();String fileId=UUID.randomUUID().toString();put.invoke(engine,fileId,new ByteArrayInputStream(jpg.toByteArray()));
+   JSONObject session=database().getJSONObject("importSession");session.getJSONArray("pages").put(new JSONObject().put("id",UUID.randomUUID().toString()).put("fileId",fileId).put("name","test-photo.jpg").put("pdf",false).put("index",0).put("rotation",0));Method saveRaw=activity.getClass().getDeclaredMethod("saveRaw");saveRaw.setAccessible(true);saveRaw.invoke(activity);
+   js("import4Render()");screen("import-pages");js("import4Original(0)");screen("import-preview");js("closeModal()");
+   PdfDocument pdf=new PdfDocument();for(int i=0;i<2;i++){PdfDocument.Page page=pdf.startPage(new PdfDocument.PageInfo.Builder(600,800,i+1).create());page.getCanvas().drawColor(-1);page.getCanvas().drawText("Page "+(i+1)+"  500",40,120,paint);pdf.finishPage(page);}ByteArrayOutputStream pdfBytes=new ByteArrayOutputStream();pdf.writeTo(pdfBytes);pdf.close();String pdfId=UUID.randomUUID().toString();put.invoke(engine,pdfId,new ByteArrayInputStream(pdfBytes.toByteArray()));Method count=engineType.getDeclaredMethod("pageCount",String.class,boolean.class);count.setAccessible(true);if((int)count.invoke(engine,pdfId,true)!=2)throw new Exception("Multipage PDF reader");report("PDF has two pages; original AES-GCM file stored");
+   js("(()=>{api('importRecognize');import4Render();return true})()");screen("import-progress");boolean done=false;for(int i=0;i<120;i++){JSONObject status=database().getJSONObject("importSession");if(status.optString("status").equals("review")){done=true;break;}if(status.has("error"))throw new Exception("OCR: "+status.getString("error"));Thread.sleep(500);}if(!done)throw new Exception("OCR timeout");check("api('importState').importSession.recognizedPages[0].text.length>0","bundled OCR produced offline text");
+   js("(()=>{let r={id:'test-row',name:'Шпаклевка стен под покр.',unit:'м²',qty:20,price:500,amount:15000,section:'Стены',page:1,original:'20 500 15000',needsReview:true,reviewed:false,candidate:Import4.match('Шпаклевка стен под покр.',C.works)};api('importUpdate',{rows:[r]});import4View='review';import4Render();return true})()");screen("import-review");js("document.querySelector('#import4row0').open=true");screen("import-warning");screen("import-matching");
+   check("Import4.summary(import4Session.rows,import4Total).warnings===1","math discrepancy requires review");js("import4Edit(0,'amount','10000')");check("Import4.summary(import4Session.rows,import4Total).warnings===0","manual correction clears warning");screen("import-totals");
+   js("(()=>{import4View='finish';import4Render();return true})()");screen("import-create");js("(()=>{$('import4Name').value='Импорт тест';$('import4Estimate').value='Смета из фото';import4Finish();return true})()");check("page==='project'&&current().name==='Импорт тест'&&selectedEstimate(current()).lines.length===1&&selectedEstimate(current()).lines[0].price===500","ordinary imported object and estimate");screen("import-object");screen("import-estimate");
+   JSONObject created=database().getJSONArray("projects").getJSONObject(database().getJSONArray("projects").length()-1);if(created.getJSONArray("sourceDocuments").getJSONObject(0).getInt("pageCount")!=1)throw new Exception("Source metadata missing");backup("import-alpha4.arhilab");js("(()=>{let e=selectedEstimate(current());api('estimateLifecycle',{project:pid,id:e.id,change:'archive'});api('estimateLifecycle',{project:pid,id:e.id,change:'restore'});return true})()");check("selectedEstimate(current()).lifecycleStatus==='active'","imported estimate archive and restore");
+   result.putString("stream","ARHILAB_IMPORT_ALPHA4_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
+  if(mode.equals("upgradePrepare")||mode.equals("f6Prepare")||mode.equals("alpha2Prepare")||mode.equals("alpha3Prepare")){
    check("api('status').setup===true",mode.equals("f6Prepare")?"F6 baseline clean install":"0.6.2 baseline clean install");
    js("api('setup',{name:'Upgrade admin',password:"+JSONObject.quote(smokePassword)+"})");
    js("enter()");
-   check("api('session').active&&api('about').version==='"+(mode.equals("f6Prepare")?"0.7.0":mode.equals("alpha2Prepare")?"0.8.0-alpha2":"0.6.2")+"'","baseline admin registered and version verified");
+   check("api('session').active&&api('about').version==='"+(mode.equals("f6Prepare")?"0.7.0":mode.equals("alpha2Prepare")?"0.8.0-alpha2":mode.equals("alpha3Prepare")?"0.8.0-alpha3":"0.6.2")+"'","baseline admin registered and version verified");
    js("api('project',{name:'Upgrade A',address:'Address A',status:'Новый',delivery:0,discount:0,deliveryCost:0,overhead:0,otherCost:0})");
    js("api('line',{project:S.projects[0].id,work:C.works.find(w=>w.tiers.standard.materialIds.length).id,qty:3.5,coef:1,price:1234,autoMaterial:true,tier:'standard',cost:60})");
    js("api('line',{project:S.projects[0].id,work:C.works.find(w=>!w.tiers.standard.materialIds.length).id,qty:7,coef:1,price:9876,autoMaterial:false,tier:'standard',cost:50})");

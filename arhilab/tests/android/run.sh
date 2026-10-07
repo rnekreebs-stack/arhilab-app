@@ -118,6 +118,12 @@ for screen in today projects object estimates estimate materials stages payments
   test -s "output/ui08-$screen.png"
 done
 test "$(find output -maxdepth 1 -name 'ui08-*.png' | wc -l)" -ge 14
+adb shell am instrument -w -e mode importAlpha4 ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-import-alpha4.txt
+grep -q ARHILAB_IMPORT_ALPHA4_PASS output/android-import-alpha4.txt
+for shot in import-menu import-source import-pages import-preview import-progress import-review import-warning import-matching import-totals import-create import-object import-estimate; do
+  adb exec-out run-as ru.arhilab.estimate cat "files/ui08-$shot.png" > "output/ui08-$shot.png"
+  test -s "output/ui08-$shot.png"
+done
 adb shell am instrument -w -e mode uiPerformance ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a3-webview-performance.txt
 grep -q ARHILAB_A3_PERFORMANCE_PASS output/android-a3-webview-performance.txt
 adb shell settings put system accelerometer_rotation 0
@@ -166,3 +172,16 @@ if [[ -f output/upgrade-baseline-alpha2-release.apk ]]; then
   adb shell am instrument -w -e mode upgradeVerify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a3-alpha2-release-after.txt
   grep -q ARHILAB_UPGRADE_PASS output/android-a3-alpha2-release-after.txt
 fi
+
+# Signed alpha3 -> alpha4 in-place upgrade with archived estimate state.
+adb uninstall ru.arhilab.estimate.smoke || true
+adb uninstall ru.arhilab.estimate || true
+adb install output/upgrade-baseline-alpha3-debug.apk
+adb install arhilab/build/smoke/smoke.apk
+adb shell am instrument -w -e mode alpha3Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a4-alpha3-before.txt
+grep -q ARHILAB_UPGRADE_PREPARE_PASS output/android-a4-alpha3-before.txt
+adb shell am force-stop ru.arhilab.estimate
+adb install -r output/Arhilab-Смета-0.8.0-alpha4-debug.apk | tee output/android-a4-alpha3-install.txt
+grep -q Success output/android-a4-alpha3-install.txt
+adb shell am instrument -w -e mode upgradeVerify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a4-alpha3-after.txt
+grep -q ARHILAB_UPGRADE_PASS output/android-a4-alpha3-after.txt

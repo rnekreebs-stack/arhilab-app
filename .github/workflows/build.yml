@@ -98,6 +98,16 @@ jobs:
           SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore" bash "$RUNNER_TEMP/arhilab-alpha2-baseline/arhilab/build.sh" debug
           cp "$RUNNER_TEMP/arhilab-alpha2-baseline/output/Arhilab-Смета-0.8.0-alpha2-debug.apk" output/upgrade-baseline-alpha2-debug.apk
           diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*debug.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-alpha2-baseline/output/Arhilab-Смета-0.8.0-alpha2-debug.apk.signature.txt")
+      - name: Build alpha3 upgrade baseline with permanent Debug key
+        env:
+          SIGNING_STORE_PASSWORD: android
+          SIGNING_KEY_PASSWORD: android
+          SIGNING_KEY_ALIAS: androiddebugkey
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/arhilab-alpha3-baseline" 86f0c1547c90a3829357661e7821dc2b68b4d544
+          SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore" bash "$RUNNER_TEMP/arhilab-alpha3-baseline/arhilab/build.sh" debug
+          cp "$RUNNER_TEMP/arhilab-alpha3-baseline/output/Arhilab-Смета-0.8.0-alpha3-debug.apk" output/upgrade-baseline-alpha3-debug.apk
+          diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*debug.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-alpha3-baseline/output/Arhilab-Смета-0.8.0-alpha3-debug.apk.signature.txt")
       - name: Build optional signed Release APK
         id: release
         env:
