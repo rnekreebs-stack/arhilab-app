@@ -149,6 +149,17 @@ public class Smoke extends Instrumentation {
    js("(()=>{go('projects');ui08Query='НЕСУЩЕСТВУЮЩИЙ_ОБЪЕКТ';filterProjects(ui08Query);return true})()");screen("empty");js("ui08Query=''");
    result.putString("stream","ARHILAB_UI08_SCREENSHOTS_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
+  if(mode.equals("alpha4SessionPrepare")){
+   check("S?.user?.role==='admin'","alpha4 session setup");
+   js("(()=>{api('importStart');api('importUpdate',{rows:[{id:'pending-alpha4',name:'Работа',unit:'шт.',qty:1,price:10,amount:10,section:'Стены',page:1,reviewed:true}]});return true})()");
+   check("api('importState').importSession.rows.length===1","alpha4 local import draft stored");
+   result.putString("stream","ARHILAB_ALPHA4_SESSION_PREPARE_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
+  if(mode.equals("alpha5SessionVerify")){
+   check("api('about').versionCode===16&&api('importState').importSession.rows[0].id==='pending-alpha4'","alpha4 import session survives upgrade");
+   check("api('session').active","local login survives upgrade");
+   result.putString("stream","ARHILAB_ALPHA5_SESSION_VERIFY_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
   if(mode.equals("importAlpha4")){
    check("S?.user?.role==='admin'&&typeof Import5==='object'","alpha4 signed-in offline import");
    js("(()=>{go('home');ui08Quick();return true})()");screen("import-menu");js("(()=>{closeModal();import4Start();return true})()");screen("import-source");

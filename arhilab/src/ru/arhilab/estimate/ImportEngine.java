@@ -9,7 +9,7 @@ import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 import com.googlecode.tesseract.android.TessBaseAPI;
 import com.googlecode.tesseract.android.ResultIterator;
-import com.googlecode.tesseract.android.PageIteratorLevel;
+import com.googlecode.tesseract.android.TessBaseAPI.PageIteratorLevel;
 import java.io.*;
 import java.nio.file.Files;
 import java.security.SecureRandom;

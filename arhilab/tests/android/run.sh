@@ -193,8 +193,12 @@ adb install output/upgrade-baseline-alpha4-debug.apk
 adb install arhilab/build/smoke/smoke.apk
 adb shell am instrument -w -e mode alpha3Prepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a5-alpha4-before.txt
 grep -q ARHILAB_UPGRADE_PREPARE_PASS output/android-a5-alpha4-before.txt
+adb shell am instrument -w -e mode alpha4SessionPrepare ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a5-alpha4-session-before.txt
+grep -q ARHILAB_ALPHA4_SESSION_PREPARE_PASS output/android-a5-alpha4-session-before.txt
 adb shell am force-stop ru.arhilab.estimate
 adb install -r output/Arhilab-Смета-0.8.0-alpha5-debug.apk | tee output/android-a5-alpha4-install.txt
 grep -q Success output/android-a5-alpha4-install.txt
 adb shell am instrument -w -e mode upgradeVerify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a5-alpha4-after.txt
 grep -q ARHILAB_UPGRADE_PASS output/android-a5-alpha4-after.txt
+adb shell am instrument -w -e mode alpha5SessionVerify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a5-alpha4-session-after.txt
+grep -q ARHILAB_ALPHA5_SESSION_VERIFY_PASS output/android-a5-alpha4-session-after.txt
