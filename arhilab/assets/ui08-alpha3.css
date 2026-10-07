@@ -27,3 +27,6 @@ dialog{border-radius:18px;box-shadow:var(--shadow-float)}dialog.bottom-sheet{pos
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
 .status-pill.archive{background:#e9eced;color:#59656b}
+
+.estimate-choice>.menu-trigger{flex:0 0 46px;min-width:46px;width:46px;text-align:center}.estimate-choice>.estimate-main{flex:1 1 auto}
+.attention-list .status-pill.warn{color:var(--red);background:#f7e8e5}
