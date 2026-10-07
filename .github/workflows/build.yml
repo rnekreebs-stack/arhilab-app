@@ -1,4 +1,4 @@
-name: Arhilab Смета 0.8.0 alpha4 Android
+name: Arhilab Смета 0.8.0 alpha5 Android
 on:
   workflow_dispatch:
   push:
@@ -108,6 +108,16 @@ jobs:
           SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore" bash "$RUNNER_TEMP/arhilab-alpha3-baseline/arhilab/build.sh" debug
           cp "$RUNNER_TEMP/arhilab-alpha3-baseline/output/Arhilab-Смета-0.8.0-alpha3-debug.apk" output/upgrade-baseline-alpha3-debug.apk
           diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*debug.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-alpha3-baseline/output/Arhilab-Смета-0.8.0-alpha3-debug.apk.signature.txt")
+      - name: Build alpha4 upgrade baseline with permanent Debug key
+        env:
+          SIGNING_STORE_PASSWORD: android
+          SIGNING_KEY_PASSWORD: android
+          SIGNING_KEY_ALIAS: androiddebugkey
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/arhilab-alpha4-baseline" cd67307727f11042de4d9c9d0ca2e5839e4527f6
+          SIGNING_KEYSTORE="$RUNNER_TEMP/arhilab-debug.keystore" bash "$RUNNER_TEMP/arhilab-alpha4-baseline/arhilab/build.sh" debug
+          cp "$RUNNER_TEMP/arhilab-alpha4-baseline/output/Arhilab-Смета-0.8.0-alpha4-debug.apk" output/upgrade-baseline-alpha4-debug.apk
+          diff <(sed -n '/Signer #1 certificate SHA-256 digest:/p' output/*debug.apk.signature.txt) <(sed -n '/Signer #1 certificate SHA-256 digest:/p' "$RUNNER_TEMP/arhilab-alpha4-baseline/output/Arhilab-Смета-0.8.0-alpha4-debug.apk.signature.txt")
       - name: Build optional signed Release APK
         id: release
         env:
@@ -174,16 +184,16 @@ jobs:
         if: always() && steps.debug.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: arhilab-0.8.0-alpha4-debug-apk
-          path: output/Arhilab-Смета-0.8.0-alpha4-debug.apk
+          name: arhilab-0.8.0-alpha5-debug-apk
+          path: output/Arhilab-Смета-0.8.0-alpha5-debug.apk
           if-no-files-found: error
           retention-days: 30
       - name: Downloadable signed Release APK
         if: steps.release.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: arhilab-0.8.0-alpha4-release-apk
-          path: output/Arhilab-Смета-0.8.0-alpha4-release.apk
+          name: arhilab-0.8.0-alpha5-release-apk
+          path: output/Arhilab-Смета-0.8.0-alpha5-release.apk
           if-no-files-found: error
           retention-days: 30
       - name: Verification reports

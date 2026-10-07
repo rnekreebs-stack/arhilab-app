@@ -1,6 +1,6 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert'),path=require('path');
 const source=fs.readFileSync(path.join(__dirname,'../assets/import-alpha4.js'),'utf8').split('let import4Session=')[0];
-const context={module:{exports:{}},console};vm.runInNewContext(source+'\nmodule.exports=Import4;',context);const parser=context.module.exports;
+const layout=fs.readFileSync(path.join(__dirname,'../assets/import-layout-alpha5.js'),'utf8');const context={module:{exports:{}},console};vm.runInNewContext(source+'\n'+layout+'\nmodule.exports=Import4;',context);const parser=context.module.exports;
 for(const [input,expected] of [['1 250',1250],['1 250,00',1250],['1250.00',1250],['1.250,50',1250.5],['₽ 1 250',1250],['',null]])assert.strictEqual(parser.number(input),expected);
 for(const [input,expected] of [['м2','м²'],['м²','м²'],['м.п.','п.м.'],['шт.','шт.'],['компл.','компл.']])assert.strictEqual(parser.unit(input),expected);
 const works=[{id:'1',name:'Шпаклёвка стен под покраску',price:900}];

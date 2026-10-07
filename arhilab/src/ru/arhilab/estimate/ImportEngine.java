@@ -8,6 +8,8 @@ import android.graphics.pdf.PdfRenderer;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 import com.googlecode.tesseract.android.TessBaseAPI;
+import com.googlecode.tesseract.android.ResultIterator;
+import com.googlecode.tesseract.android.PageIteratorLevel;
 import java.io.*;
 import java.nio.file.Files;
 import java.security.SecureRandom;
@@ -46,8 +48,14 @@ final class ImportEngine {
  JSONArray recognize(JSONArray pages,Progress progress)throws Exception{
   prepareModels();TessBaseAPI tess=new TessBaseAPI();if(!tess.init(new File(dir,"tesseract").getAbsolutePath(),"rus+eng")){tess.recycle();throw new IOException("Локальная модель OCR недоступна");}
   JSONArray result=new JSONArray();try{for(int i=0;i<pages.length();i++){if(progress.cancelled())throw new IOException("Распознавание отменено");JSONObject source=pages.getJSONObject(i);progress.page(i+1,pages.length());Bitmap b=bitmap(source.getString("fileId"),source.optBoolean("pdf"),source.optInt("index"),2400);
-   try{Bitmap cropped=cropped(b,source.optJSONArray("crop")),scan=rotated(cropped,source.optInt("rotation"));try{tess.setImage(scan);String text=tess.getUTF8Text();result.put(new JSONObject().put("page",i+1).put("text",text==null?"":text).put("ocrConfidence",tess.meanConfidence()));}finally{if(scan!=cropped)scan.recycle();if(cropped!=b)cropped.recycle();}}finally{b.recycle();}}
+   try{Bitmap cropped=cropped(b,source.optJSONArray("crop")),scan=rotated(cropped,source.optInt("rotation"));try{tess.setImage(scan);String text=tess.getUTF8Text();JSONArray words=new JSONArray(),lines=new JSONArray(),blocks=new JSONArray();ResultIterator it=tess.getResultIterator();if(it!=null){try{it.begin();int block=-1,line=-1,order=0;do{
+    if(it.isAtBeginningOf(PageIteratorLevel.RIL_BLOCK)){block++;blocks.put(element(it,PageIteratorLevel.RIL_BLOCK,i,block,line,order));}
+    if(it.isAtBeginningOf(PageIteratorLevel.RIL_TEXTLINE)){line++;lines.put(element(it,PageIteratorLevel.RIL_TEXTLINE,i,block,line,order));}
+    JSONObject word=element(it,PageIteratorLevel.RIL_WORD,i,block,line,order++);if(!word.optString("text").trim().isEmpty())words.put(word);
+   }while(it.next(PageIteratorLevel.RIL_WORD));}finally{it.delete();}}
+   result.put(new JSONObject().put("page",i+1).put("pageIndex",i).put("width",scan.getWidth()).put("height",scan.getHeight()).put("text",text==null?"":text).put("ocrConfidence",tess.meanConfidence()).put("blocks",blocks).put("lines",lines).put("words",words));}finally{if(scan!=cropped)scan.recycle();if(cropped!=b)cropped.recycle();}}finally{b.recycle();}}
   }finally{tess.recycle();}boolean found=false;for(int i=0;i<result.length();i++)if(!result.getJSONObject(i).optString("text").trim().isEmpty())found=true;if(!found)throw new IOException("Текст не найден. Проверьте качество страниц и повторите распознавание.");return result;
  }
+ static JSONObject element(ResultIterator it,int level,int page,int block,int line,int order)throws JSONException{android.graphics.Rect r=it.getBoundingRect(level);JSONObject box=new JSONObject().put("x",r.left).put("y",r.top).put("width",r.width()).put("height",r.height());String value=it.getUTF8Text(level);return new JSONObject().put("text",value==null?"":value).put("pageIndex",page).put("box",box).put("x",r.left).put("y",r.top).put("width",r.width()).put("height",r.height()).put("block",block).put("line",line).put("order",order).put("confidence",it.confidence(level));}
  interface Progress{void page(int current,int total)throws Exception;boolean cancelled();}
 }
