@@ -30,3 +30,11 @@ dialog{border-radius:18px;box-shadow:var(--shadow-float)}dialog.bottom-sheet{pos
 
 .estimate-choice>.menu-trigger{flex:0 0 46px;min-width:46px;width:46px;text-align:center}.estimate-choice>.estimate-main{flex:1 1 auto}
 .attention-list .status-pill.warn{color:var(--red);background:#f7e8e5}
+/* Alpha4 import review keeps the alpha3 typography and spacing. */
+.import4-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.import4-grid label{min-width:0}
+.import4-preview{display:block;width:100%;height:auto;max-height:70vh;object-fit:contain}
+#import4Root details.card summary{cursor:pointer}
+#import4Root .quick-grid{display:grid;grid-template-columns:1fr;gap:10px}
+#import4Root .card .row{min-width:0}
+#import4Root .card .row span:first-child{overflow-wrap:anywhere}

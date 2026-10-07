@@ -183,7 +183,7 @@ public class Smoke extends Instrumentation {
    }else result.putString("stream","ARHILAB_F6_F7_RESTART_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("upgradeVerify")){
-   check("api('about').version==='0.8.0-alpha3'&&api('about').versionCode===14&&api('about').schemaVersion===10","0.8.0-alpha3 local schema retained");
+   check("api('about').version==='0.8.0-alpha4'&&api('about').versionCode===15&&api('about').schemaVersion===10","0.8.0-alpha3 local schema retained");
    check("S?.user?.role==='admin'&&api('session').active","admin session survives installation update");
    check("typeof a3Empty==='function'&&typeof window.ui08DocumentsHub==='function'","updated visual assets loaded after in-place upgrade");
    JSONObject before=new JSONObject(new String(read("upgrade-before.json"),StandardCharsets.UTF_8)),after=snapshot();

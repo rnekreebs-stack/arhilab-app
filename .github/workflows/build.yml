@@ -1,4 +1,4 @@
-name: Arhilab Смета 0.8.0 alpha3 Android
+name: Arhilab Смета 0.8.0 alpha4 Android
 on:
   workflow_dispatch:
   push:
@@ -35,12 +35,14 @@ jobs:
           npm install --prefix .ci-deps --no-audit --no-fund playwright@1.51.1
           .ci-deps/node_modules/.bin/playwright install --with-deps chromium
           echo "NODE_PATH=$GITHUB_WORKSPACE/.ci-deps/node_modules" >> "$GITHUB_ENV"
+      - name: Prepare bundled offline Russian OCR
+        run: bash arhilab/prepare-ocr.sh
       - name: Existing tests
         run: bash arhilab/tests/run.sh
       - name: Compile application sources
         run: |
           mkdir -p "$RUNNER_TEMP/arhilab-classes"
-          javac -encoding UTF-8 -source 8 -target 8 -classpath "$ANDROID_SDK_ROOT/platforms/android-35/android.jar" -d "$RUNNER_TEMP/arhilab-classes" arhilab/src/ru/arhilab/estimate/*.java
+          javac -encoding UTF-8 -source 8 -target 8 -classpath "$ANDROID_SDK_ROOT/platforms/android-35/android.jar:$GITHUB_WORKSPACE/.ci-ocr/classes.jar" -d "$RUNNER_TEMP/arhilab-classes" arhilab/src/ru/arhilab/estimate/*.java
       - name: Restore permanent Debug keystore
         env:
           DEBUG_KEYSTORE_BASE64: ${{ secrets.ARHILAB_DEBUG_KEYSTORE_BASE64 }}
@@ -162,16 +164,16 @@ jobs:
         if: always() && steps.debug.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: arhilab-0.8.0-alpha3-debug-apk
-          path: output/Arhilab-Смета-0.8.0-alpha3-debug.apk
+          name: arhilab-0.8.0-alpha4-debug-apk
+          path: output/Arhilab-Смета-0.8.0-alpha4-debug.apk
           if-no-files-found: error
           retention-days: 30
       - name: Downloadable signed Release APK
         if: steps.release.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: arhilab-0.8.0-alpha3-release-apk
-          path: output/Arhilab-Смета-0.8.0-alpha3-release.apk
+          name: arhilab-0.8.0-alpha4-release-apk
+          path: output/Arhilab-Смета-0.8.0-alpha4-release.apk
           if-no-files-found: error
           retention-days: 30
       - name: Verification reports
