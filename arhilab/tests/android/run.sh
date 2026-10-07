@@ -204,6 +204,10 @@ adb shell am instrument -w -e mode alpha5SessionVerify ru.arhilab.estimate.smoke
 grep -q ARHILAB_ALPHA5_SESSION_VERIFY_PASS output/android-a5-alpha4-session-after.txt
 adb shell am instrument -w -e mode premiumPdf ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-premium-pdf.txt
 grep -q ARHILAB_PREMIUM_PDF_PASS output/android-premium-pdf.txt
+for shot in premium-pdf-cover premium-pdf-section; do
+  adb exec-out run-as ru.arhilab.estimate cat "files/ui08-$shot.png" > "output/ui08-$shot.png"
+  test -s "output/ui08-$shot.png"
+done
 adb pull /sdcard/Android/data/ru.arhilab.estimate/files/pdf-examples output/pdf-examples
 
 # Signed alpha5 -> alpha6 in-place upgrade retains estimates and a local import draft.

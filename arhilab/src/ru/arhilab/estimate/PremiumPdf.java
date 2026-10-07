@@ -27,7 +27,7 @@ import org.json.JSONObject;
 /** Offline, vector-text client renderer. Input is exclusively F7Documents' safe, immutable snapshot. */
 final class PremiumPdf {
     interface ImageSource { byte[] get(String id)throws Exception; }
-    static final int W=960,H=540,LEFT=34,RIGHT=926,TOP=142,BOTTOM=452;
+    static final int W=960,H=540,LEFT=34,RIGHT=926,TOP=160,BOTTOM=452;
     static final int BG=Color.rgb(19,22,22),PANEL=Color.rgb(29,33,33),WHITE=Color.rgb(243,243,239),MUTED=Color.rgb(174,174,169),GOLD=Color.rgb(202,165,107);
     private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);private Canvas c;
     private final JSONObject doc,s,settings;private final ImageSource photos;
@@ -73,6 +73,8 @@ final class PremiumPdf {
             if(settings.optBoolean("includeSignatures")){if(used>195&&detail.rows.size()>0){sheets.add(detail);detail=new Sheet("Условия проекта");detail.details=true;}detail.rows.add(new JSONObject().put("title","SIGNATURES"));}
             if(!detail.rows.isEmpty())sheets.add(detail);
         }
+        // Project summary remains the final page, including when optional conditions are present.
+        ArrayList<Sheet> summaries=new ArrayList<>();for(Sheet sheet:sheets)if(sheet.summary)summaries.add(sheet);sheets.removeAll(summaries);sheets.addAll(summaries);
     }
     private void frame(Sheet sheet,int page){c.drawColor(BG);if(photos!=null)try{photograph("brand-logo",LEFT,15,35,39);}catch(Exception ignored){}label("ARHILAB",LEFT+45,38,WHITE,20,true);label("АРХИТЕКТУРА  •  СТРОИТЕЛЬСТВО  •  РЕМОНТ",LEFT+45,52,MUTED,8,false);right("ВСЁ ПРОСТРАНСТВО В ОДНИХ РУКАХ",RIGHT,37,GOLD,9,true);rule(LEFT,64,RIGHT,Color.rgb(89,82,69));
         if(!sheet.cover){String title=sheet.title.toUpperCase(new Locale("ru","RU"));for(String line:wrap(title,RIGHT-LEFT,28,true)){label(line,LEFT,96,WHITE,28,true);break;}fill(LEFT,108,70,110,GOLD);if(sheet.count>1)right(String.format(Locale.ROOT,"%02d / %02d",sheet.part,sheet.count),RIGHT,114,GOLD,10,true);}
@@ -87,7 +89,7 @@ final class PremiumPdf {
         for(String line:wrap(s.optString("address"),photo.isEmpty()?830:490,12,false)){label(line,LEFT,y,MUTED,12,false);y+=17;if(y>415)break;}
         right(money(s.optString("total")),RIGHT,481,GOLD,25,true);
     }
-    private void section(Sheet sheet)throws Exception{int y=TOP-14;label("№",LEFT,y,GOLD,10,true);label("РАБОТЫ И МАТЕРИАЛЫ",LEFT+36,y,GOLD,10,true);
+    private void section(Sheet sheet)throws Exception{label(sheet.section==null||sheet.section.optString("note").isEmpty()?"Состав работ и материалов по смете":clean(sheet.section.optString("note")),LEFT,121,MUTED,10,false);int y=TOP-14;label("№",LEFT,y,GOLD,10,true);label("РАБОТЫ И МАТЕРИАЛЫ",LEFT+36,y,GOLD,10,true);
         boolean showQty=settings.optBoolean("showQuantity",true),showPrice=settings.optBoolean("showUnitPrice",true)&&!settings.optBoolean("hideLinePrices")&&!settings.optBoolean("onlySectionTotals"),showTotal=settings.optBoolean("showRowTotal",true)&&!settings.optBoolean("hideLinePrices");
         if(showQty)label("КОЛИЧЕСТВО",641,y,GOLD,9,true);if(showPrice)label("ЦЕНА",754,y,GOLD,9,true);if(showTotal)right("СТОИМОСТЬ",RIGHT,y,GOLD,9,true);rule(LEFT,y+8,RIGHT,Color.rgb(89,82,69));y+=22;
         int rowNo=1;for(int prior=0;prior<sheets.indexOf(sheet);prior++)if(sheets.get(prior).title.equals(sheet.title))rowNo+=sheets.get(prior).rows.size();

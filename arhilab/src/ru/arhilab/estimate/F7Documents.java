@@ -82,7 +82,8 @@ final class F7Documents {
             int column=group==works?0:1;amounts[column]=amounts[column].add(new BigDecimal(entry.getString("total")));
         }
         JSONArray sections=new JSONArray();for(Map.Entry<String,BigDecimal[]> entry:sectionTotals.entrySet()){
-            BigDecimal[] amounts=entry.getValue();sections.put(new JSONObject().put("title",entry.getKey())
+            String note="";JSONArray sourceSections=estimate.optJSONArray("sections");if(sourceSections!=null)for(int i=0;i<sourceSections.length();i++){JSONObject source=sourceSections.getJSONObject(i);if(entry.getKey().equals(source.optString("name",source.optString("title")))){note=source.optString("note");break;}}
+            BigDecimal[] amounts=entry.getValue();sections.put(new JSONObject().put("title",entry.getKey()).put("note",note)
                 .put("workTotal",cents(amounts[0]).toPlainString())
                 .put("materialTotal",mode.equals("hidden")?"":cents(amounts[1]).toPlainString())
                 .put("total",mode.equals("hidden")?"":cents(amounts[0].add(amounts[1])).toPlainString()));
