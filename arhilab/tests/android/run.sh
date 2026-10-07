@@ -208,7 +208,11 @@ for shot in premium-pdf-cover premium-pdf-section; do
   adb exec-out run-as ru.arhilab.estimate cat "files/ui08-$shot.png" > "output/ui08-$shot.png"
   test -s "output/ui08-$shot.png"
 done
-adb pull /sdcard/Android/data/ru.arhilab.estimate/files/pdf-examples output/pdf-examples
+mkdir -p output/pdf-examples
+for sample in arhilab-5-rows arhilab-50-rows arhilab-200-rows arhilab-only-totals arhilab-with-photo; do
+  adb exec-out run-as ru.arhilab.estimate cat "files/pdf-examples/$sample.pdf" > "output/pdf-examples/$sample.pdf"
+  test -s "output/pdf-examples/$sample.pdf"
+done
 
 # Signed alpha5 -> alpha6 in-place upgrade retains estimates and a local import draft.
 adb uninstall ru.arhilab.estimate.smoke || true
