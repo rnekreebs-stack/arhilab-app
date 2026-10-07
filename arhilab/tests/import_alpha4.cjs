@@ -8,4 +8,7 @@ assert.strictEqual(parser.match('Шпаклевка стен под покр.',w
 let sample=parser.parse([{page:1,text:'Демонтаж\n№  Наименование  Ед.  Количество  Цена  Сумма\n1  Демонтаж перегородки  м²  20  500  10 000\n2  Неизвестная работа  шт.  1  850  900'},{page:2,text:'Наименование  Ед.  Количество  Цена  Сумма\nИтого  10 900'}],works);
 assert.strictEqual(sample.rows.length,2);assert.strictEqual(sample.rows[0].section,'Демонтаж');assert.strictEqual(sample.rows[0].amount,10000);assert.strictEqual(sample.rows[1].needsReview,true);assert.strictEqual(sample.total,10900);
 assert.strictEqual(parser.summary(sample.rows,sample.total).warnings,1);
+const long=[{page:1,text:'Стены\n'+Array.from({length:110},(_,i)=>`${i+1}  Работа ${i+1}  м2  2  1  2`).join('\n')},{page:2,text:'Наименование  Ед.  Количество  Цена  Сумма\n'+Array.from({length:110},(_,i)=>`${i+111}  Работа ${i+111}  шт.  3  10  30`).join('\n')+'\nИтого  3520'}];
+const parsed=parser.parse(long,works);assert.strictEqual(parsed.rows.length,220);assert.strictEqual(parsed.total,3520);assert.strictEqual(parser.summary(parsed.rows,parsed.total).difference,0);
+const incomplete=parser.parse([{page:1,text:'Шпаклёвка под покраску  м²  20'}],works);assert.strictEqual(incomplete.rows[0].needsReview,true);assert.strictEqual(incomplete.rows[0].price,null);
 console.log('Import alpha4 parser: numeric, units, matching, repeated header, math and total OK');
