@@ -101,6 +101,13 @@ public class Smoke extends Instrumentation {
   report("Encrypted backup exists: "+name+" ("+read(name).length+" bytes)");
  }
  public void onStart(){Bundle result=new Bundle();try{
+  if(mode.equals("premiumUserExport")){
+   for(String name:new String[]{"ui08-premium-user-settings.png","ui08-premium-user-cover.png","ui08-premium-user-section.png","ui08-premium-user-summary.png","ui08-premium-user-created.png","pdf-examples/arhilab-rekalesa.pdf"}){
+    byte[] bytes=read(name);StringBuilder hash=new StringBuilder();for(byte value:java.security.MessageDigest.getInstance("SHA-256").digest(bytes))hash.append(String.format(java.util.Locale.ROOT,"%02x",value&255));
+    Bundle exported=new Bundle();exported.putString("stream","ARHILAB_FILE="+name+"\nARHILAB_SHA256="+hash+"\nARHILAB_BASE64="+android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP)+"\n");sendStatus(0,exported);
+   }
+   result.putString("stream","ARHILAB_PREMIUM_USER_EXPORT_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
   launch();
   String smokePassword=java.util.UUID.randomUUID().toString();
   if(mode.equals("loginScreenshot")){
@@ -318,9 +325,6 @@ public class Smoke extends Instrumentation {
    JSONObject document=project.getJSONArray("clientDocuments").getJSONObject(0),snapshot=document.getJSONObject("snapshot");
    if(!document.optBoolean("premium")||!document.getString("type").equals("COMMERCIAL_OFFER")||Double.parseDouble(snapshot.getString("total"))!=237000||Double.parseDouble(snapshot.getString("delivery"))!=120000||Double.parseDouble(snapshot.getJSONArray("works").getJSONObject(0).getString("total"))!=117000)throw new Exception("Premium Рекалеса snapshot");
    File saved=new File(getTargetContext().getFilesDir(),"premium-pdf/"+document.getString("id")+".pdf"),examples=new File(getTargetContext().getFilesDir(),"pdf-examples");examples.mkdirs();java.nio.file.Files.copy(saved.toPath(),new File(examples,"arhilab-rekalesa.pdf").toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-   File exported=getTargetContext().getExternalFilesDir("premium-user-test");if(exported==null)throw new Exception("PDF UI test export directory");exported.mkdirs();
-   java.nio.file.Files.copy(saved.toPath(),new File(exported,"arhilab-rekalesa.pdf").toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-   for(String shot:new String[]{"settings","cover","section","summary","created"})java.nio.file.Files.copy(fixture("ui08-premium-user-"+shot+".png").toPath(),new File(exported,shot+".png").toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
    check("(()=>{closeModal();tab='documents';projectPage();return !document.querySelector('#detail [onclick*=\"printDoc(false)\"]')&&!document.querySelector('#detail [onclick*=\"f7CreateForm\"]')&&!!document.querySelector('#detail button[onclick=\"premiumPdfForm()\"]')})()","documents expose premium CTA without legacy creation buttons");
    report("Premium Рекалеса real installed APK: dark preview, gold summary, actual PDF saved, 237000 total");result.putString("stream","ARHILAB_PREMIUM_USER_FLOW_PASS\n");finish(Activity.RESULT_OK,result);return;
   }

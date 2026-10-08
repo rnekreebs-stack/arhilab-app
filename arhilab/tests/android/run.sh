@@ -245,11 +245,9 @@ for variant in debug release; do
   adb shell svc data disable
   adb shell am instrument -w -e mode premiumUserFlow ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee "output/android-premium-user-$variant.txt"
   grep -q ARHILAB_PREMIUM_USER_FLOW_PASS "output/android-premium-user-$variant.txt"
-  for shot in settings cover section summary created; do
-    adb pull "/sdcard/Android/data/ru.arhilab.estimate/files/premium-user-test/$shot.png" "output/ui08-premium-pdf-user-$variant-$shot.png"
-    test -s "output/ui08-premium-pdf-user-$variant-$shot.png"
-  done
-  adb pull /sdcard/Android/data/ru.arhilab.estimate/files/premium-user-test/arhilab-rekalesa.pdf output/pdf-examples/arhilab-rekalesa.pdf
-  test -s output/pdf-examples/arhilab-rekalesa.pdf
+  mkdir -p output/pdf-transfer
+  adb shell am instrument -w -e mode premiumUserExport ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke > "output/pdf-transfer/$variant.txt"
+  grep -q ARHILAB_PREMIUM_USER_EXPORT_PASS "output/pdf-transfer/$variant.txt"
+  python3 arhilab/tests/android/export_premium_user.py "$variant" "output/pdf-transfer/$variant.txt" output
 done
 
