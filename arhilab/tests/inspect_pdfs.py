@@ -37,6 +37,7 @@ def inspect(root):
         "arhilab-only-totals": (4, 1500, 100, None),
         "arhilab-with-photo": (4, 9900, 9000, "Общие работы"),
         "arhilab-long-with-photo": (11, 10000, 10000, "Общие работы"),
+        "arhilab-rekalesa": (3, 237000, 117000, "Общие работы"),
     }
     actual_names = {p.stem for p in root.glob("*.pdf")}
     require(actual_names == set(cases), "fresh fixture set", sorted(actual_names), sorted(cases))
@@ -84,7 +85,13 @@ def inspect(root):
         expected_grand = "ОБЩАЯ СТОИМОСТЬ ПРОЕКТА " + money(total)
         require(grand_lines == [expected_grand], name + " canonical grand total", grand_lines, [expected_grand])
         work_lines = [normalized(line) for line in pages[-1].splitlines() if "ИТОГО РАБОТЫ" in line]
-        require(work_lines == ["ИТОГО РАБОТЫ " + money(total)], name + " canonical work total", work_lines, money(total))
+        work_total = 117000 if name == "arhilab-rekalesa" else total
+        require(work_lines == ["ИТОГО РАБОТЫ " + money(work_total)], name + " canonical work total", work_lines, money(work_total))
+        if name == "arhilab-rekalesa":
+            require("Рекалеса" in flat and "Линолеум коммерческий" in flat and "90 м²" in flat and "1 300 ₽" in flat,
+                    name + " user fixture", flat, "Рекалеса, Линолеум коммерческий, 90 м², 1300 ₽")
+            delivery_lines = [normalized(line) for line in text.splitlines() if "ДОСТАВКА" in line]
+            require(delivery_lines == ["ДОСТАВКА 120 000 ₽"], name + " delivery", delivery_lines, "120000 ₽")
         if section:
             section_lines = [normalized(line) for line in text.splitlines() if "ИТОГО " + section.upper() in line]
             require("ИТОГО " + section.upper() + " " + money(section_total) in section_lines,

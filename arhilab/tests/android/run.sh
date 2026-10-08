@@ -230,3 +230,26 @@ adb shell am instrument -w -e mode upgradeVerify ru.arhilab.estimate.smoke/ru.ar
 grep -q ARHILAB_UPGRADE_PASS output/android-a6-alpha5-after.txt
 adb shell am instrument -w -e mode alpha5SessionVerify ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee output/android-a6-alpha5-session-after.txt
 grep -q ARHILAB_ALPHA5_SESSION_VERIFY_PASS output/android-a6-alpha5-session-after.txt
+
+# Exercise the primary CTA on the upgraded Debug APK, then on the installed signed Release APK.
+for variant in debug release; do
+  if [[ "$variant" == release ]]; then
+    test -s output/Arhilab-Смета-0.8.0-alpha6-release.apk
+    adb uninstall ru.arhilab.estimate.smoke
+    adb uninstall ru.arhilab.estimate
+    adb install output/Arhilab-Смета-0.8.0-alpha6-release.apk
+    adb install arhilab/build/smoke/release-smoke.apk
+  fi
+  adb shell cmd connectivity airplane-mode enable
+  adb shell svc wifi disable
+  adb shell svc data disable
+  adb shell am instrument -w -e mode premiumUserFlow ru.arhilab.estimate.smoke/ru.arhilab.estimate.Smoke | tee "output/android-premium-user-$variant.txt"
+  grep -q ARHILAB_PREMIUM_USER_FLOW_PASS "output/android-premium-user-$variant.txt"
+  for shot in settings cover section summary created; do
+    adb pull "/sdcard/Android/data/ru.arhilab.estimate/files/premium-user-test/$shot.png" "output/ui08-premium-pdf-user-$variant-$shot.png"
+    test -s "output/ui08-premium-pdf-user-$variant-$shot.png"
+  done
+  adb pull /sdcard/Android/data/ru.arhilab.estimate/files/premium-user-test/arhilab-rekalesa.pdf output/pdf-examples/arhilab-rekalesa.pdf
+  test -s output/pdf-examples/arhilab-rekalesa.pdf
+done
+

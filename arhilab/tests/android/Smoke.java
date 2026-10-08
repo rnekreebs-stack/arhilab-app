@@ -5,6 +5,8 @@ import android.os.*;
 import android.view.*;
 import android.webkit.*;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.pdf.PdfDocument;
@@ -32,6 +34,14 @@ public class Smoke extends Instrumentation {
  void check(String expression,String label)throws Exception{if(!"true".equals(js(expression)))throw new Exception(label+": "+js(expression));report(label);}
  void report(String message){Bundle b=new Bundle();b.putString("stream","PASS: "+message+"\n");sendStatus(0,b);}
  JSONObject database()throws Exception{Field field=activity.getClass().getDeclaredField("db");field.setAccessible(true);return (JSONObject)field.get(activity);}
+ void premiumPixels(JSONObject preview,boolean summary)throws Exception{
+  byte[] bytes=android.util.Base64.decode(preview.getString("data").substring("data:image/png;base64,".length()),android.util.Base64.DEFAULT);
+  Bitmap bitmap=BitmapFactory.decodeByteArray(bytes,0,bytes.length);if(bitmap==null)throw new Exception("Blank premium bitmap");
+  try{if(bitmap.getWidth()!=960||bitmap.getHeight()!=540)throw new Exception("Premium preview size");int dark=bitmap.getPixel(500,300);
+   if(Color.red(dark)!=19||Color.green(dark)!=22||Color.blue(dark)!=22)throw new Exception("Premium dark background");
+   if(summary){int gold=bitmap.getPixel(100,470);if(Color.red(gold)!=202||Color.green(gold)!=165||Color.blue(gold)!=107)throw new Exception("Premium gold total band");}
+  }finally{bitmap.recycle();}
+ }
  JSONObject F7DocumentFromDb(JSONObject db,int projectIndex)throws Exception{return db.getJSONArray("projects").getJSONObject(projectIndex).getJSONArray("clientDocuments").getJSONObject(0);}
  JSONObject f6Snapshot()throws Exception{JSONArray projects=database().getJSONArray("projects"),out=new JSONArray();for(int i=0;i<projects.length();i++){
   JSONObject p=projects.getJSONObject(i),row=new JSONObject();for(String key:new String[]{"id","name","lines","materials","payments","expenses","tasks","procurementRequests","procurementReceipts","estimates"})
@@ -283,6 +293,37 @@ public class Smoke extends Instrumentation {
    JSONObject longPhoto=new JSONObject(withPhoto.toString());longPhoto.put("id",UUID.randomUUID().toString());JSONArray longRows=new JSONArray();for(int i=0;i<50;i++)longRows.put(new JSONObject().put("title","Работа с фотографией раздела "+i).put("section",photoSection).put("unit","м²").put("quantity","2").put("unitPrice","100").put("total","200"));JSONObject longSnapshot=longPhoto.getJSONObject("snapshot");longSnapshot.put("works",longRows).put("materials",new JSONArray()).put("sections",new JSONArray().put(new JSONObject().put("title",photoSection).put("workTotal","10000").put("materialTotal","0").put("total","10000"))).put("workTotal","10000").put("workMarkup","0").put("materialTotal","0").put("total","10000");File featured=(File)render.invoke(null,getTargetContext().getCacheDir(),longPhoto,imageSource);if(((JSONObject)preview.invoke(null,featured,0)).getInt("pageCount")<7)throw new Exception("Long section photo pagination");java.nio.file.Files.copy(featured.toPath(),new File(examples,"arhilab-long-with-photo.pdf").toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
    report("PREMIUM_PDF_PASS samples: 5, 50, 200 rows, 15 sections, only totals, Cyrillic, document total");result.putString("stream","ARHILAB_PREMIUM_PDF_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
+  if(mode.equals("premiumUserFlow")){
+   if("true".equals(js("api('status').setup")))js("(()=>{api('setup',{name:'PDF UI admin',password:"+JSONObject.quote(smokePassword)+"});enter();return true})()");
+   check("api('session').active","premium user flow local session");
+   js("(()=>{let r=api('project',{name:'Рекалеса',client:'Дмитрий',address:'Москва',delivery:120000,discount:0});window.pdfProject=r.projectId;api('manualWork',{project:pdfProject,name:'Линолеум коммерческий',unit:'м²',qty:90,coef:1,price:1300,cost:700});openProject(pdfProject);window.pdfRouteCalls=[];window.pdfRouteApi=api;api=function(name,args){pdfRouteCalls.push(name);if(['print','f7Create','f7Finalize'].includes(name))throw Error('Legacy PDF route: '+name);return pdfRouteApi(name,args)};return true})()");
+   check("calc(current()).total===237000&&current().client==='Дмитрий'","Рекалеса total 117000 + delivery 120000 = 237000");
+   check("(()=>{let b=[...document.querySelectorAll('#detail button')].filter(x=>x.textContent.trim()==='Создать PDF');return b.length===1&&b[0].getAttribute('onclick')==='premiumPdfForm()'})()","original estimate primary CTA uses premium");
+   js("(()=>{document.querySelector('#detail button[onclick=\"premiumPdfForm()\"]').click();return true})()");
+   check("!!document.querySelector('#premiumForm')&&document.querySelector('#premiumForm [name=type]').value==='COMMERCIAL_OFFER'","primary CTA opens premium commercial proposal settings");screen("premium-user-settings");
+   js("(()=>{document.querySelector('#premiumForm').requestSubmit();return true})()");
+   check("document.querySelector('#modal h2').textContent==='Предпросмотр PDF'&&!!document.querySelector('#premiumPreviewImage')&&premiumPage===0&&premiumPages>=3","primary UI submits premium preview");
+   Field draft=activity.getClass().getDeclaredField("premiumDraftFile");draft.setAccessible(true);File first=(File)draft.get(activity);
+   Class<?> renderer=getTargetContext().getClassLoader().loadClass("ru.arhilab.estimate.PremiumPdf");Method preview=renderer.getDeclaredMethod("preview",File.class,int.class);preview.setAccessible(true);
+   premiumPixels((JSONObject)preview.invoke(null,first,0),false);screen("premium-user-cover");
+   js("(()=>{document.querySelector('#modal button[onclick=\"premiumPreviewPage(1)\"]').click();return true})()");check("premiumPage===1","premium next page");screen("premium-user-section");
+   js("(()=>{document.querySelector('#modal button[onclick=\"premiumPreviewPage(-1)\"]').click();document.querySelector('#modal button[onclick=\"premiumPdfForm()\"]').click();document.querySelector('#premiumForm').requestSubmit();return true})()");
+   check("premiumPage===0&&!!document.querySelector('#premiumPreviewImage')","premium back, settings and repeated preview");
+   int pages=Integer.parseInt(js("premiumPages"));for(int i=1;i<pages;i++)js("(()=>{document.querySelector('#modal button[onclick=\"premiumPreviewPage(1)\"]').click();return true})()");
+   premiumPixels((JSONObject)preview.invoke(null,(File)draft.get(activity),pages-1),true);screen("premium-user-summary");
+   Field print=activity.getClass().getDeclaredField("printWeb");print.setAccessible(true);if(print.get(activity)!=null)throw new Exception("Android Print Framework opened before premium creation");
+   js("(()=>{document.querySelector('#modal button[onclick=\"premiumCreate()\"]').click();return true})()");
+   check("document.querySelector('#modal h2').textContent==='PDF создан'&&pdfRouteCalls.includes('premiumPreview')&&pdfRouteCalls.includes('premiumCreate')&&!pdfRouteCalls.some(x=>['print','f7Create','f7Finalize'].includes(x))","premium UI creates a file without legacy print/F7 creation");screen("premium-user-created");
+   JSONObject project=null;JSONArray projects=database().getJSONArray("projects");for(int i=0;i<projects.length();i++)if(projects.getJSONObject(i).optString("name").equals("Рекалеса"))project=projects.getJSONObject(i);
+   JSONObject document=project.getJSONArray("clientDocuments").getJSONObject(0),snapshot=document.getJSONObject("snapshot");
+   if(!document.optBoolean("premium")||!document.getString("type").equals("COMMERCIAL_OFFER")||Double.parseDouble(snapshot.getString("total"))!=237000||Double.parseDouble(snapshot.getString("delivery"))!=120000||Double.parseDouble(snapshot.getJSONArray("works").getJSONObject(0).getString("total"))!=117000)throw new Exception("Premium Рекалеса snapshot");
+   File saved=new File(getTargetContext().getFilesDir(),"premium-pdf/"+document.getString("id")+".pdf"),examples=new File(getTargetContext().getFilesDir(),"pdf-examples");examples.mkdirs();java.nio.file.Files.copy(saved.toPath(),new File(examples,"arhilab-rekalesa.pdf").toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+   File exported=getTargetContext().getExternalFilesDir("premium-user-test");if(exported==null)throw new Exception("PDF UI test export directory");exported.mkdirs();
+   java.nio.file.Files.copy(saved.toPath(),new File(exported,"arhilab-rekalesa.pdf").toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+   for(String shot:new String[]{"settings","cover","section","summary","created"})java.nio.file.Files.copy(fixture("ui08-premium-user-"+shot+".png").toPath(),new File(exported,shot+".png").toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+   check("(()=>{closeModal();tab='documents';projectPage();return !document.querySelector('#detail [onclick*=\"printDoc(false)\"]')&&!document.querySelector('#detail [onclick*=\"f7CreateForm\"]')&&!!document.querySelector('#detail button[onclick=\"premiumPdfForm()\"]')})()","documents expose premium CTA without legacy creation buttons");
+   report("Premium Рекалеса real installed APK: dark preview, gold summary, actual PDF saved, 237000 total");result.putString("stream","ARHILAB_PREMIUM_USER_FLOW_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
   if(resume){
    check("api('status').setup===false","existing admin after process cold restart");
    check("S?.user?.role==='admin'&&document.querySelector('#app form [name=password]')===null","automatic login after cold restart");
@@ -344,3 +385,4 @@ public class Smoke extends Instrumentation {
   result.putString("stream","ARHILAB_SMOKE_PASS\n");finish(Activity.RESULT_OK,result);
  }catch(Throwable e){result.putString("stream","ARHILAB_SMOKE_FAIL: "+e.toString()+"\n");finish(Activity.RESULT_CANCELED,result);}}
 }
+
