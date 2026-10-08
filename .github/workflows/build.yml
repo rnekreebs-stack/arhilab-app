@@ -186,14 +186,21 @@ jobs:
           script: bash arhilab/tests/android/run.sh
       - name: Inspect generated proposal PDFs
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils
           command -v pdfinfo >/dev/null && command -v pdftotext >/dev/null
           for file in output/pdf-examples/*.pdf; do
             pdfinfo "$file" | grep -q 'Page size:.*960 x 540 pts'
+            test "$(pdfinfo "$file" | awk '/^Pages:/{print $2}')" -gt 0
             pdftotext "$file" "${file%.pdf}.txt"
             grep -q 'ARHILAB' "${file%.pdf}.txt"
-            ! grep -Ei 'закупочн|себестоим|маржа|валовая прибыль|операционная прибыль' "${file%.pdf}.txt"
+            grep -q '₽' "${file%.pdf}.txt"
+            awk -v RS='\f' 'NF==0{bad=1} END{exit bad}' "${file%.pdf}.txt"
+            ! grep -Ei 'закупочн|себестоим|маржа|валовая прибыль|операционная прибыль|worker cost|purchase cost|gross profit|operating profit|margin|internal markup|внутренняя наценка|внутренние коэффициенты' "${file%.pdf}.txt"
           done
           grep -q '5 000 000' output/pdf-examples/arhilab-5-rows.txt
+          grep -q 'м²' output/pdf-examples/arhilab-5-rows.txt
+          grep -q 'ИТОГО' output/pdf-examples/arhilab-5-rows.txt
           ! grep -q '60 000 000' output/pdf-examples/arhilab-5-rows.txt
           test "$(pdfinfo output/pdf-examples/arhilab-200-rows.pdf | awk '/^Pages:/{print $2}')" -ge 20
       - name: Generated PDFs and preview screenshots

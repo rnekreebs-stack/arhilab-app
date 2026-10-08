@@ -209,7 +209,7 @@ for shot in premium-pdf-cover premium-pdf-section; do
   test -s "output/ui08-$shot.png"
 done
 mkdir -p output/pdf-examples
-for sample in arhilab-5-rows arhilab-50-rows arhilab-200-rows arhilab-only-totals arhilab-with-photo arhilab-long-with-photo; do
+for sample in arhilab-technical-estimate arhilab-5-rows arhilab-50-rows arhilab-200-rows arhilab-only-totals arhilab-with-photo arhilab-long-with-photo; do
   adb exec-out run-as ru.arhilab.estimate cat "files/pdf-examples/$sample.pdf" > "output/pdf-examples/$sample.pdf"
   test -s "output/pdf-examples/$sample.pdf"
 done
