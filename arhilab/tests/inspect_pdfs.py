@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+from decimal import Decimal
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -88,7 +89,8 @@ def inspect(root):
         work_total = 117000 if name == "arhilab-rekalesa" else total
         require(work_lines == ["ИТОГО РАБОТЫ " + money(work_total)], name + " canonical work total", work_lines, money(work_total))
         if name == "arhilab-rekalesa":
-            require("Рекалеса" in flat and "Линолеум коммерческий" in flat and "90 м²" in flat and "1 300 ₽" in flat,
+            row = re.search(r"Линолеум коммерческий\s+(\d+(?:[.,]\d+)?)\s+м²\s+1 300 ₽\s+117 000 ₽", flat)
+            require("Рекалеса" in flat and row and Decimal(row.group(1).replace(",", ".")) == Decimal("90"),
                     name + " user fixture", flat, "Рекалеса, Линолеум коммерческий, 90 м², 1300 ₽")
             delivery_lines = [normalized(line) for line in text.splitlines() if "ДОСТАВКА" in line]
             require(delivery_lines == ["ДОСТАВКА 120 000 ₽"], name + " delivery", delivery_lines, "120000 ₽")
