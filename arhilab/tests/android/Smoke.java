@@ -139,9 +139,42 @@ public class Smoke extends Instrumentation {
    Class<?> processor=getTargetContext().getClassLoader().loadClass("ru.arhilab.estimate.PhotoImage");Method encode=processor.getDeclaredMethod("encode",ContentResolver.class,android.net.Uri.class,int.class,int.class);encode.setAccessible(true);byte[] corrected=(byte[])encode.invoke(null,getTargetContext().getContentResolver(),android.net.Uri.fromFile(rotated),1800,2200000);Bitmap correctedBitmap=BitmapFactory.decodeByteArray(corrected,0,corrected.length);if(correctedBitmap.getWidth()!=640||correctedBitmap.getHeight()!=480)throw new Exception("EXIF rotation not corrected");correctedBitmap.recycle();rotated.delete();report("EXIF rotation and bounded image decode");
    Method full=activity.getClass().getDeclaredMethod("fullBackupContent");full.setAccessible(true);JSONObject backup=(JSONObject)full.invoke(activity);JSONObject copy=backup.getJSONArray("projects").getJSONObject(0);if(copy.getJSONArray("photos").length()!=50||copy.getJSONArray("photos").getJSONObject(0).optString("data").length()<100)throw new Exception("Photo backup incomplete");
    Class<?> profile=getTargetContext().getClassLoader().loadClass("ru.arhilab.estimate.PhotoProfile");Method remap=profile.getDeclaredMethod("remapIds",JSONObject.class);remap.setAccessible(true);remap.invoke(null,copy);if(!copy.optString("coverPhotoId").equals(copy.getJSONArray("photos").getJSONObject(1).getString("id"))||!copy.getJSONArray("photos").getJSONObject(0).getString("estimateItemId").equals(itemId))throw new Exception("Restore photo links lost");
+   // Exercise the same file import used by full restore on a copy of 20 photo records.
+   JSONArray twenty=new JSONArray();for(int i=0;i<20;i++)twenty.put(copy.getJSONArray("photos").getJSONObject(i));
+   copy.put("photos",twenty);Method migrate=activity.getClass().getDeclaredMethod("migratePhotos",JSONObject.class,boolean.class);migrate.setAccessible(true);
+   Object migration=migrate.invoke(activity,new JSONObject().put("projects",new JSONArray().put(copy)),false);
+   Field migrated=migration.getClass().getDeclaredField("migrated");migrated.setAccessible(true);if(migrated.getInt(migration)!=20)throw new Exception("Restore did not copy all 20 photo files");
+   Method photoStore=activity.getClass().getDeclaredMethod("photos");photoStore.setAccessible(true);Object store=photoStore.invoke(activity);Method imageGet=store.getClass().getDeclaredMethod("get",String.class);imageGet.setAccessible(true);
+   String restoredId=copy.getJSONArray("photos").getJSONObject(0).getString("id");if(!java.util.Arrays.equals(output.toByteArray(),(byte[])imageGet.invoke(store,restoredId)))throw new Exception("Restored photo bytes changed");
+   if(!copy.optString("coverPhotoId").equals(copy.getJSONArray("photos").getJSONObject(1).getString("id"))||!copy.getJSONArray("photos").getJSONObject(0).getString("stageId").equals(stageId))throw new Exception("Restored cover or stage link changed");
+   report("20 photo files, cover, estimate item and stage links restored");
    check("(()=>{let p=S.projects[0],e=p.estimates[1];return api('premiumPreview',{project:p.id,estimateId:e.id,type:'COMMERCIAL_OFFER',settings:{materials:'subtotal',includePhotos:true,coverPhotoId:p.coverPhotoId},pageIndex:0}).preview.pageCount>0})()","premium PDF project cover");
    js("api('photoDelete',{project:S.projects[0].id,id:'"+after.getString("id")+"',confirmed:true})");check("!S.projects[0].coverPhotoId","delete cover clears flag");
    check("(()=>{let p=S.projects[0],e=p.estimates[1];return api('premiumPreview',{project:p.id,estimateId:e.id,type:'COMMERCIAL_OFFER',settings:{materials:'subtotal',includePhotos:true,coverPhotoId:'"+after.getString("id")+"'},pageIndex:0}).preview.pageCount>0})()","missing PDF photo fallback");
+   // Deliver a camera result to the real callback, then accept and retake its preview.
+   Field pendingProject=activity.getClass().getDeclaredField("pendingProject"),pendingLinks=activity.getClass().getDeclaredField("pendingPhotoLinks"),cameraBytes=activity.getClass().getDeclaredField("pendingCameraPhoto");
+   pendingProject.setAccessible(true);pendingLinks.setAccessible(true);cameraBytes.setAccessible(true);
+   pendingProject.set(activity,p.getString("id"));pendingLinks.set(activity,new JSONObject().put("type","BEFORE").put("caption","Камера"));
+   File capture=new File(getTargetContext().getCacheDir(),"estimate-capture.jpg");java.nio.file.Files.write(capture.toPath(),output.toByteArray());
+   Method resultCallback=activity.getClass().getDeclaredMethod("onActivityResult",int.class,int.class,Intent.class);resultCallback.setAccessible(true);
+   AtomicReference<Throwable> callbackError=new AtomicReference<>();runOnMainSync(()->{try{resultCallback.invoke(activity,41,Activity.RESULT_OK,null);}catch(Throwable t){callbackError.set(t);}});
+   if(callbackError.get()!=null)throw new Exception("Camera callback",callbackError.get());
+   for(int i=0;i<100&&cameraBytes.get(activity)==null;i++)Thread.sleep(100);
+   check("api('photoCameraPreview').data.startsWith('data:image/jpeg;base64,')","camera preview");
+   js("api('photoCameraDecision',{use:true})");check("api('photoList',{project:S.projects[0].id}).photos.length===50","camera photo committed after deleted cover");
+   java.nio.file.Files.write(capture.toPath(),output.toByteArray());runOnMainSync(()->{try{resultCallback.invoke(activity,41,Activity.RESULT_OK,null);}catch(Throwable t){callbackError.set(t);}});
+   if(callbackError.get()!=null)throw new Exception("Camera retake callback",callbackError.get());
+   for(int i=0;i<100&&cameraBytes.get(activity)==null;i++)Thread.sleep(100);
+   js("api('photoCameraDecision',{use:false})");check("api('photoList',{project:S.projects[0].id}).photos.length===50","camera retake discards photo");
+   // ACTION_OPEN_DOCUMENT can return multiple items; both are copied to managed storage.
+   File galleryFile=new File(getTargetContext().getCacheDir(),"alpha7-gallery.jpg");java.nio.file.Files.write(galleryFile.toPath(),output.toByteArray());
+   android.net.Uri galleryUri=android.net.Uri.fromFile(galleryFile);android.content.ClipData selected=android.content.ClipData.newUri(getTargetContext().getContentResolver(),"Фото",galleryUri);
+   selected.addItem(new android.content.ClipData.Item(galleryUri));Intent galleryResult=new Intent().setClipData(selected);
+   pendingLinks.set(activity,new JSONObject().put("type","PROGRESS").put("caption","Из галереи"));
+   runOnMainSync(()->{try{resultCallback.invoke(activity,42,Activity.RESULT_OK,galleryResult);}catch(Throwable t){callbackError.set(t);}});
+   if(callbackError.get()!=null)throw new Exception("Gallery callback",callbackError.get());
+   for(int i=0;i<100&&database().getJSONArray("projects").getJSONObject(0).getJSONArray("photos").length()<52;i++)Thread.sleep(100);
+   check("(()=>{let rows=api('photoList',{project:S.projects[0].id}).photos;return rows.length===52&&rows.filter(x=>x.caption==='Из галереи'&&x.type==='PROGRESS').length===2})()","multi-select gallery copied two photos");
    result.putString("stream","ARHILAB_ALPHA7_PHOTO_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("loginScreenshot")){
