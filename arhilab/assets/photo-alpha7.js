@@ -1,7 +1,7 @@
 /* Project gallery. Images are requested one thumbnail at a time; state carries metadata only. */
 const photo7Types={BEFORE:'До',PROGRESS:'В процессе',AFTER:'После',DOCUMENT:'Документ',DEFECT:'Дефект',MATERIAL:'Материал',OTHER:'Другое'};
 let photo7Filter='ALL',photo7Cache=new Map(),photo7Observer=null;
-function photo7List(){return api('photoList',{project:pid}).photos.filter(x=>!x.purchaseRef)}
+function photo7List(){let rows;try{rows=api('photoList',{project:pid}).photos}catch(e){}if(!Array.isArray(rows)){let p=current();rows=[...(p?.photos||[]),...(p?.estimatePhotos||[])]}return rows.filter(x=>!x.purchaseRef)}
 function photo7Image(id,thumbnail=true){let key=id+(thumbnail?':thumb':':full');if(!photo7Cache.has(key))photo7Cache.set(key,api('photoImage',{project:pid,id,thumbnail}).data);return photo7Cache.get(key)}
 function photo7Hydrate(root=document){if(photo7Observer)photo7Observer.disconnect();photo7Observer=new IntersectionObserver(entries=>{for(const entry of entries){if(!entry.isIntersecting)continue;const image=entry.target;photo7Observer.unobserve(image);try{image.src=photo7Image(image.dataset.photoId)}catch(e){image.alt='Фото недоступно';image.classList.add('unavailable')}}},{rootMargin:'150px'});root.querySelectorAll('img[data-photo-id]').forEach(x=>photo7Observer.observe(x))}
 function photo7Cover(p,klass){let id=p.coverPhotoId;if(!id)return `<div class="photo7-placeholder ${klass}" aria-label="Обложка не выбрана"><span>ARHILAB</span></div>`;return `<img class="${klass}" data-photo-id="${esc(id)}" alt="Обложка объекта">`}
