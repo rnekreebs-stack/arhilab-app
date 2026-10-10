@@ -26,9 +26,11 @@ const {chromium}=require('playwright');
   await page.locator('.tabs').getByText('Фото',{exact:true}).click();
   assert.match(await page.locator('#detail').innerText(),/Недоступно фото объекта: 1/);
   await page.locator('.tabs').getByText('Документы',{exact:true}).click();
-  await page.getByText('Сохранить КП в PDF').click();
+  // Historical print adapter still refuses missing-photo exports without confirmation.
+  await page.evaluate(()=>legacyPrintDoc(false));
   assert.equal(await page.evaluate(()=>window.printCalls),0,'A document missing photos needs explicit confirmation');
   assert.equal(errors.length,0,errors.join('\n'));
   console.log('PASS: missing photos are disclosed and PDF requires confirmation; mocked native bridge.');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});
+

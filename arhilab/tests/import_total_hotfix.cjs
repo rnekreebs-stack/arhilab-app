@@ -1,0 +1,13 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert'),path=require('path');
+const assets=path.join(__dirname,'../assets');let legacy=fs.readFileSync(path.join(assets,'import-alpha4.js'),'utf8').split('let import4Session=')[0],layout=fs.readFileSync(path.join(assets,'import-layout-alpha5.js'),'utf8');let context={module:{exports:{}},console};vm.runInNewContext(legacy+'\n'+layout+'\nmodule.exports={Import4,Import5}',context);const {Import4,Import5}=context.module.exports,calc=require('../assets/core.js');
+const row=text=>{let result=Import5.parse([{page:1,text}],[]);assert.equal(result.rows.length,1);return result.rows[0]};
+let a=row('12 шт\nСумма: 5 000 000 ₽');assert.equal(a.qty,12);assert.equal(a.price,null);assert.equal(a.amount,5000000);assert.equal(a.ocrTotal,5000000);assert.equal(calc.lineTotal({qty:a.qty,price:a.price,importedAmount:a.amount}),5000000);
+let aInline=row('Оборудование 12 шт 5 000 000 ₽');assert.equal(aInline.qty,12);assert.equal(aInline.price,null);assert.equal(aInline.amount,5000000);
+let b=row('Наименование | Кол-во | Цена | Сумма\nРабота | 12 | 400000 | 4800000');assert.equal(b.qty,12);assert.equal(b.price,400000);assert.equal(b.amount,4800000);assert.equal(b.validationStatus,'OK');
+let c=row('Наименование | Кол-во | Цена | Сумма\nРабота | 12 | 400000 | 5000000');assert.equal(c.qty,12);assert.equal(c.price,400000);assert.equal(c.amount,5000000);assert.equal(c.ocrTotal,5000000);assert.equal(c.calculatedTotal,4800000);assert.equal(c.difference,200000);assert.equal(c.validationStatus,'WARNING');assert.equal(c.needsReview,true);
+let d=row('Наименование | Кол-во | Сумма\nОборудование | 12 | 5000000');assert.equal(d.price,null);assert.equal(d.amount,5000000);assert.equal(d.amountSource,'document');assert.equal(Import4.summary([d],null).sum,5000000);assert.equal(calc.calc({lines:[{qty:12,price:null,coef:1,importedAmount:5000000}],materials:[]}).total,5000000);
+let e=row('Наименование | Кол-во | Цена\nРабота | 12 | 400000');assert.equal(e.price,400000);assert.equal(e.ocrTotal,null);assert.equal(e.amount,4800000);assert.equal(e.amountSource,'calculated');
+let semantic=row('Наименование | Кол-во | Стоимость за единицу\nРабота | 12 | 400000');assert.equal(semantic.price,400000);assert.equal(semantic.amount,4800000);
+assert.equal(calc.calc({lines:[{qty:12,price:400000,coef:1,importedAmount:5000000}],materials:[]}).total,5000000);
+assert.equal(calc.calc({lines:[{qty:12,price:400000,coef:1}],materials:[]}).total,4800000);
+console.log('Import total hotfix: five source-preserving cases, calculation and review summary OK');

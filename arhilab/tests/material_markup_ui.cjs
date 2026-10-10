@@ -42,9 +42,10 @@ const {chromium}=require('playwright');
   await p.selectOption('#materialMarkup','12');
   const values=await p.evaluate(()=>{let x=S.projects[0];return {rate:x.materialMarkup,material:x.materials[0].price,kit:x.lines[0].materialPrice,added:x.materials[1].price,total:calc(x).total}});
   assert.deepEqual(values,{rate:12,material:224,kit:112,added:168,total:2064});
-  await p.locator('.tabs').getByText('Документы').click();await p.getByText('Сохранить КП в PDF').click();
+  await p.locator('.tabs').getByText('Документы').click();await p.evaluate(()=>legacyPrintDoc(false));
   let html=await p.evaluate(()=>window.lastPrint);assert.match(html,/2\s064,00/);assert.match(html,/224,00/);assert.match(html,/112,00/);
   if(errors.length)throw Error(errors.join('\n'));
   console.log('PASS: 8% to 10% to 12%, existing items and new cost, totals and PDF update. Mocked native bridge.');
  }finally{await b.close()}
 })().catch(e=>{console.error(e);process.exit(1)});
+

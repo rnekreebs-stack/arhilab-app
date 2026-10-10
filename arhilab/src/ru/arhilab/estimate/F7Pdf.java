@@ -113,7 +113,7 @@ final class F7Pdf {
             String[] columns=p==null?new String[]{OpenableColumns.DISPLAY_NAME,OpenableColumns.SIZE}:p;
             MatrixCursor result=new MatrixCursor(columns);Object[] row=new Object[columns.length];
             for(int i=0;i<columns.length;i++){
-                if(columns[i].equals(OpenableColumns.DISPLAY_NAME))row[i]="Arhilab_"+u.getLastPathSegment();
+                if(columns[i].equals(OpenableColumns.DISPLAY_NAME)){File name=new File(new File(getContext().getCacheDir(),"f7"),u.getLastPathSegment().replace(".pdf",".name"));try{row[i]=name.isFile()?new String(java.nio.file.Files.readAllBytes(name.toPath()),java.nio.charset.StandardCharsets.UTF_8):"Arhilab_"+u.getLastPathSegment();}catch(Exception e){row[i]="Arhilab_"+u.getLastPathSegment();}}
                 else if(columns[i].equals(OpenableColumns.SIZE))row[i]=new File(new File(getContext().getCacheDir(),"f7"),u.getLastPathSegment()).length();
             }result.addRow(row);return result;
         }

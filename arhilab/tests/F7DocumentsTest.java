@@ -13,7 +13,7 @@ public final class F7DocumentsTest {
    .put("tasks",new JSONArray()).put("payments",new JSONArray()).put("workMarkupPercent","10").put("delivery",50).put("discount",10);
   LocalEstimates.ensure(p);JSONObject data=new JSONObject().put("schemaVersion",8).put("users",new JSONArray()).put("projects",new JSONArray().put(p));
   data=DataMigration.migrate(data);p=data.getJSONArray("projects").getJSONObject(0);
-  check(data.getInt("schemaVersion")==9&&p.getJSONArray("clientDocuments").length()==0,"additive migration");
+  check(data.getInt("schemaVersion")==DataMigration.CURRENT&&p.getJSONArray("clientDocuments").length()==0,"additive migration");
   String estimate=p.getString("legacyEstimateId"),request=UUID.randomUUID().toString();
   JSONObject options=new JSONObject().put("materials","detailed").put("showMaterialPrices",true);
   JSONObject v1=F7Documents.create(p,estimate,"COMMERCIAL_OFFER",options,request,uid);
@@ -27,6 +27,11 @@ public final class F7DocumentsTest {
   JSONObject v2=F7Documents.create(p,estimate,"COMMERCIAL_OFFER",options,UUID.randomUUID().toString(),uid);
   check(v1.getJSONObject("snapshot").toString().equals(before)&&v1.getInt("version")==1&&v2.getInt("version")==2,"final snapshot immutable");
   check(!v1.getJSONObject("snapshot").getString("total").equals(v2.getJSONObject("snapshot").getString("total")),"new version should change");
+  JSONObject imported=new JSONObject().put("name","Оборудование").put("qty",12).put("coef",1).put("price",JSONObject.NULL).put("importedAmount",5000000).put("section","Импорт");
+  JSONObject importedSnapshot=F7Documents.row(imported,"work");
+  check(importedSnapshot.getString("unitPrice").isEmpty()&&importedSnapshot.getString("total").equals("5000000.00"),"document total is never multiplied by quantity in PDF snapshot");
+  imported.put("price",400000);
+  check(F7Documents.row(imported,"work").getString("total").equals("5000000.00"),"mismatched document total remains unchanged");
   JSONObject other=new JSONObject(p.toString()).put("id",UUID.randomUUID().toString()).put("clientDocuments",new JSONArray());
   other.remove("estimates");other.remove("legacyEstimateId");LocalEstimates.ensure(other);data.getJSONArray("projects").put(other);
   JSONObject otherDocument=F7Documents.create(other,other.getString("legacyEstimateId"),"COMMERCIAL_OFFER",options,UUID.randomUUID().toString(),uid,data.getJSONArray("projects"));

@@ -1,7 +1,7 @@
 name: Arhilab 0.7.0 Backend
 on:
   push:
-    branches: [arhilab-0.7.0-architecture]
+    branches: [arhilab-0.7.0-architecture, arhilab-0.8.0-ui-local]
     paths: ['backend/**', 'arhilab/**', 'docs/CATALOG_PRICE_UPDATE_2026_09.md', '.github/workflows/backend.yml']
   pull_request:
     paths: ['backend/**', 'arhilab/**', 'docs/CATALOG_PRICE_UPDATE_2026_09.md', '.github/workflows/backend.yml']
@@ -41,6 +41,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Prepare offline OCR dependency for Android compilation
+        working-directory: .
+        run: bash arhilab/prepare-ocr.sh
       - name: Compile Android application sources without signing or packaging
         working-directory: .
         run: |
@@ -51,7 +54,7 @@ jobs:
           fi
           mkdir -p /tmp/arhilab-f1-classes
           javac -encoding UTF-8 -source 8 -target 8 \
-            -classpath "$sdk_root/platforms/android-35/android.jar" \
+            -classpath "$sdk_root/platforms/android-35/android.jar:$GITHUB_WORKSPACE/.ci-ocr/classes.jar" \
             -d /tmp/arhilab-f1-classes arhilab/src/ru/arhilab/estimate/*.java
       - name: F1 Android local migration and durable queue regression
         working-directory: .
@@ -60,8 +63,8 @@ jobs:
           echo '3ea61b2a06e31edf1c91134fe9106b0ebb16628be169f3db75bc7a2b06b45796  /tmp/arhilab-org-json.jar' | sha256sum -c -
           mkdir -p /tmp/arhilab-f1-tests
           javac -encoding UTF-8 -source 8 -target 8 -cp /tmp/arhilab-org-json.jar -d /tmp/arhilab-f1-tests \
-            arhilab/src/ru/arhilab/estimate/{F7Documents,DataMigration,LocalEstimates,F1SyncLedger,F1SyncMerge,F1SyncTransport,F2Payments,F3Expenses,F4Execution,F5Tasks,F6Procurement,CatalogPriceUpdate,BackupCrypto}.java \
-            arhilab/tests/{F1SyncLedgerTest,F2PaymentsTest,F3ExpensesTest,F4ExecutionTest,F5TasksTest,F6ProcurementTest,F7DocumentsTest,CatalogPriceUpdateTest}.java
+            arhilab/src/ru/arhilab/estimate/{F7Documents,DataMigration,PhotoProfile,LocalEstimates,EstimateLifecycle,F1SyncLedger,F1SyncMerge,F1SyncTransport,F2Payments,F3Expenses,F4Execution,F5Tasks,F6Procurement,CatalogPriceUpdate,BackupCrypto}.java \
+            arhilab/tests/{F1SyncLedgerTest,F2PaymentsTest,F3ExpensesTest,F4ExecutionTest,F5TasksTest,F6ProcurementTest,F7DocumentsTest,EstimateLifecycleTest,CatalogPriceUpdateTest}.java
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F1SyncLedgerTest /tmp/arhilab-f1-android-operations.json /tmp/arhilab-f1-money.json
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F2PaymentsTest /tmp/arhilab-f2-android-operations.json
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F3ExpensesTest /tmp/arhilab-f3-android-operations.json
@@ -69,6 +72,7 @@ jobs:
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F5TasksTest /tmp/arhilab-f5-android-operations.json
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F6ProcurementTest /tmp/arhilab-f6-android-operations.json /tmp/arhilab-f6-restored-operations.json
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.F7DocumentsTest
+          java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.EstimateLifecycleTest
           java -cp /tmp/arhilab-f1-tests:/tmp/arhilab-org-json.jar ru.arhilab.estimate.CatalogPriceUpdateTest arhilab/assets/catalog.json
           node arhilab/tests/f1_legacy_total.cjs /tmp/arhilab-f1-money.json
           node arhilab/tests/f2_payments.cjs
