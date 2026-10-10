@@ -16,7 +16,7 @@ public final class EstimateLifecycleTest {
             .put("clientDocuments",new JSONArray().put(new JSONObject().put("estimateId",id).put("number","1")));
         JSONObject old=new JSONObject().put("schemaVersion",9).put("users",new JSONArray()).put("projects",new JSONArray().put(project));
         JSONObject migrated=DataMigration.migrate(old),p=migrated.getJSONArray("projects").getJSONObject(0),e=p.getJSONArray("estimates").getJSONObject(0);
-        check(migrated.getInt("schemaVersion")==10&&EstimateLifecycle.status(e).equals("active"),"old estimates active after migration");
+        check(migrated.getInt("schemaVersion")==11&&EstimateLifecycle.status(e).equals("active"),"old estimates active after migration");
         check(old.getInt("schemaVersion")==9&&!row.has("lifecycleStatus"),"source unchanged");
         EstimateLifecycle.transition(p,e,"archive",false,false,"");
         check(EstimateLifecycle.status(e).equals("archived")&&e.getJSONArray("lines").length()==1,"archive retains rows");

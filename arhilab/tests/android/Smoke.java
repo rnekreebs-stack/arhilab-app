@@ -110,6 +110,38 @@ public class Smoke extends Instrumentation {
   }
   launch();
   String smokePassword=java.util.UUID.randomUUID().toString();
+  if(mode.equals("alpha6PhotoPrepare")){
+   check("api('status').setup===true","alpha6 clean baseline");js("api('setup',{name:'Photo admin',password:'photo-alpha7-pass-123'})");js("enter()");
+   js("api('project',{name:'Фото до обновления',address:'Москва\\nУлица Тестовая, 1',client:'Клиент',status:'В работе',delivery:0,discount:0,deliveryCost:0,overhead:0,otherCost:0})");
+   js("api('estimateCreate',{project:S.projects[0].id,name:'Смета до обновления'})");
+   js("api('task',{project:S.projects[0].id,name:'Этап до обновления',planDate:'2026-10-10'})");
+   write("photo-alpha6-ids.json",new JSONObject().put("project",database().getJSONArray("projects").getJSONObject(0).getString("id")).put("estimate",database().getJSONArray("projects").getJSONObject(0).getJSONArray("estimates").getJSONObject(1).getString("id")).toString().getBytes(StandardCharsets.UTF_8));
+   result.putString("stream","ARHILAB_ALPHA6_PHOTO_PREPARE_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
+  if(mode.equals("photoAlpha7")){
+   check("api('about').versionCode===18&&api('about').schemaVersion===11&&api('session').active","alpha6 to alpha7 and session");
+   JSONObject ids=new JSONObject(new String(read("photo-alpha6-ids.json"),StandardCharsets.UTF_8));
+   JSONObject p=database().getJSONArray("projects").getJSONObject(0);if(!p.getString("id").equals(ids.getString("project"))||!p.getJSONArray("estimates").getJSONObject(1).getString("id").equals(ids.getString("estimate"))||!p.getString("address").contains("Тестовая"))throw new Exception("Upgrade changed project/address/estimate");
+   check("(()=>{let p=S.projects[0];openProject(p.id);tab='photos';projectPage();return !!document.querySelector('.photo7-grid')&&!!document.querySelector('.photo7-hero')})()","object profile and gallery");
+   Bitmap picture=Bitmap.createBitmap(480,640,Bitmap.Config.ARGB_8888);picture.eraseColor(Color.rgb(48,68,84));ByteArrayOutputStream output=new ByteArrayOutputStream();picture.compress(Bitmap.CompressFormat.JPEG,88,output);picture.recycle();
+   Method add=activity.getClass().getDeclaredMethod("newPhoto",JSONObject.class,String.class,byte[].class,JSONObject.class);add.setAccessible(true);
+   String estimateId=ids.getString("estimate"),stageId=p.getJSONArray("tasks").getJSONObject(0).getString("id"),itemId=UUID.randomUUID().toString();
+   p.getJSONArray("estimates").getJSONObject(1).getJSONArray("lines").put(new JSONObject().put("id",itemId).put("name","Стена").put("qty",1).put("price",100).put("coef",1));
+   JSONObject before=(JSONObject)add.invoke(activity,p,"photos",output.toByteArray(),new JSONObject().put("type","BEFORE").put("zone","Кухня").put("estimateId",estimateId).put("estimateItemId",itemId).put("stageId",stageId).put("caption","До"));
+   JSONObject after=(JSONObject)add.invoke(activity,p,"photos",output.toByteArray(),new JSONObject().put("type","AFTER").put("zone","Кухня").put("estimateId",estimateId).put("estimateItemId",itemId).put("stageId",stageId));
+   js("api('photoCover',{project:S.projects[0].id,id:'"+before.getString("id")+"'})");
+   check("api('photoList',{project:S.projects[0].id}).photos.length===2&&S.projects[0].coverPhotoId==='"+before.getString("id")+"'","cover, metadata and links");
+   check("api('photoImage',{project:S.projects[0].id,id:'"+before.getString("id")+"',thumbnail:true}).data.startsWith('data:image/jpeg;base64,')","thumbnail available");
+   js("api('photoCover',{project:S.projects[0].id,id:'"+after.getString("id")+"'})");check("S.projects[0].coverPhotoId==='"+after.getString("id")+"'&&!S.projects[0].photos[0].isCover","cover replacement");
+   for(int i=2;i<50;i++)add.invoke(activity,p,"photos",output.toByteArray(),new JSONObject().put("type","PROGRESS").put("caption","Кадр "+i));
+   long start=System.nanoTime();check("(()=>{openProject(S.projects[0].id,'photos');return document.querySelectorAll('.photo7-tile').length===50})()","50-photo gallery");report("50 gallery tiles DOM: "+((System.nanoTime()-start)/1000000)+" ms");
+   Method full=activity.getClass().getDeclaredMethod("fullBackupContent");full.setAccessible(true);JSONObject backup=(JSONObject)full.invoke(activity);JSONObject copy=backup.getJSONArray("projects").getJSONObject(0);if(copy.getJSONArray("photos").length()!=50||copy.getJSONArray("photos").getJSONObject(0).optString("data").length()<100)throw new Exception("Photo backup incomplete");
+   PhotoProfile.remapIds(copy);if(!copy.optString("coverPhotoId").equals(copy.getJSONArray("photos").getJSONObject(1).getString("id"))||!copy.getJSONArray("photos").getJSONObject(0).getString("estimateItemId").equals(itemId))throw new Exception("Restore photo links lost");
+   check("(()=>{let p=S.projects[0],e=p.estimates[1];return api('premiumPreview',{project:p.id,estimateId:e.id,type:'COMMERCIAL_OFFER',settings:{materials:'subtotal',includePhotos:true,coverPhotoId:p.coverPhotoId},pageIndex:0}).preview.pageCount>0})()","premium PDF project cover");
+   js("api('photoDelete',{project:S.projects[0].id,id:'"+after.getString("id")+"',confirmed:true})");check("!S.projects[0].coverPhotoId","delete cover clears flag");
+   check("(()=>{let p=S.projects[0],e=p.estimates[1];return api('premiumPreview',{project:p.id,estimateId:e.id,type:'COMMERCIAL_OFFER',settings:{materials:'subtotal',includePhotos:true,coverPhotoId:'"+after.getString("id")+"'},pageIndex:0}).preview.pageCount>0})()","missing PDF photo fallback");
+   result.putString("stream","ARHILAB_ALPHA7_PHOTO_PASS\n");finish(Activity.RESULT_OK,result);return;
+  }
   if(mode.equals("loginScreenshot")){
    for(int i=0;i<100&&!"true".equals(js("!!document.querySelector('.a3-login')"));i++)Thread.sleep(100);
    check("api('status').setup===true&&!!document.querySelector('.a3-login')","alpha3 login shown on clean install");
@@ -173,7 +205,7 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_ALPHA4_SESSION_PREPARE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("alpha5SessionVerify")){
-   check("api('about').versionCode===17&&api('importState').importSession.rows[0].id==='pending-alpha4'","alpha4 import session survives upgrade");
+   check("api('about').versionCode===18&&api('importState').importSession.rows[0].id==='pending-alpha4'","alpha4 import session survives upgrade");
    check("api('session').active","local login survives upgrade");
    result.putString("stream","ARHILAB_ALPHA5_SESSION_VERIFY_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
@@ -220,7 +252,7 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_UPGRADE_PREPARE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("f6Verify")||mode.equals("f6Restart")){
-   check("api('about').versionCode===17&&api('about').schemaVersion===10&&api('session').active","signed in-place migration and session");
+   check("api('about').versionCode===18&&api('about').schemaVersion===11&&api('session').active","signed in-place migration and session");
    JSONObject before=new JSONObject(new String(read("f6-before.json"),StandardCharsets.UTF_8)),after=f6Snapshot();
    if(!before.toString().equals(after.toString()))throw new Exception("F6→F7 data changed: "+before+" versus "+after);
    check("S.projects.length===2&&S.projects[0].estimates.length===2&&S.projects[0].expenses.length===1&&S.projects[0].procurementRequests.length===1&&S.projects[0].procurementReceipts.length===1","F6 identities, estimates, F3-F6 preserved");
@@ -231,7 +263,7 @@ public class Smoke extends Instrumentation {
    }else result.putString("stream","ARHILAB_F6_F7_RESTART_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("upgradeVerify")){
-   check("api('about').version==='0.8.0-alpha6'&&api('about').versionCode===17&&api('about').schemaVersion===10","0.8.0-alpha3 local schema retained");
+   check("api('about').version==='0.8.0-alpha7'&&api('about').versionCode===18&&api('about').schemaVersion===11","0.8.0-alpha3 local schema retained");
    check("S?.user?.role==='admin'&&api('session').active","admin session survives installation update");
    check("typeof a3Empty==='function'&&typeof window.ui08DocumentsHub==='function'","updated visual assets loaded after in-place upgrade");
    JSONObject before=new JSONObject(new String(read("upgrade-before.json"),StandardCharsets.UTF_8)),after=snapshot();
@@ -276,7 +308,7 @@ public class Smoke extends Instrumentation {
    result.putString("stream","ARHILAB_UPGRADE_PASS\n");finish(Activity.RESULT_OK,result);return;
   }
   if(mode.equals("upgradeRestart")){
-   check("api('about').schemaVersion===10&&api('session').active","encrypted data and session reopen");
+   check("api('about').schemaVersion===11&&api('session').active","encrypted data and session reopen");
    JSONObject before=new JSONObject(new String(read("upgrade-before.json"),StandardCharsets.UTF_8));
    assertLegacy(before);
    check("S.projects.length===2&&S.projects[0].estimates.length===2&&S.projects[0].procurementRequests.length===1&&S.projects[0].procurementReceipts.length===1&&S.projects[0].clientDocuments.length===2","F1-F7 data remains after restart without duplicates");
@@ -343,7 +375,7 @@ public class Smoke extends Instrumentation {
   check("S.user.role==='admin'","admin account created through form");
   check("C.materials.length===254","catalog 254 SKU");
   check("C.works.filter(w=>w.tiers.standard.materialIds.length).length===110","110 linked works");
-  check("C.works.length===389&&api('about').schemaVersion===10&&C.works.find(w=>w.name==='Монтаж душевого трапа').price===6500","389 works, shower drain 6500 and current data schema");
+  check("C.works.length===389&&api('about').schemaVersion===11&&C.works.find(w=>w.name==='Монтаж душевого трапа').price===6500","389 works, shower drain 6500 and current data schema");
   // A pre-0.6 row has no key, tier, or estimatePhotos. Insert through the same encrypted save routine.
   Field dbField=activity.getClass().getDeclaredField("db");dbField.setAccessible(true);JSONObject db=(JSONObject)dbField.get(activity);
   JSONObject legacy=new JSONObject("{\"id\":\"11111111-1111-4111-8111-111111111111\",\"name\":\"Legacy estimate\",\"address\":\"Legacy address\",\"status\":\"Новый\",\"lines\":[{\"id\":\"22222222-2222-4222-8222-222222222222\",\"name\":\"Legacy work\",\"unit\":\"м²\",\"qty\":10,\"coef\":1,\"price\":100,\"cost\":60,\"autoMaterial\":false}],\"materials\":[],\"payments\":[],\"tasks\":[],\"notes\":[],\"photos\":[]}");
@@ -370,7 +402,7 @@ public class Smoke extends Instrumentation {
   check("api('integrity').report.issues.length===0","read-only integrity report has no findings");
   Method backupMethod=activity.getClass().getDeclaredMethod("fullBackupContent");backupMethod.setAccessible(true);
   JSONObject complete=(JSONObject)backupMethod.invoke(activity);
-  if(!complete.optString("format").equals("Arhilab-2")||complete.optInt("schemaVersion")!=10||complete.toString().contains("sessionHash")||complete.toString().contains(smokePassword))throw new Exception("Unsafe or incomplete backup");
+  if(!complete.optString("format").equals("Arhilab-2")||complete.optInt("schemaVersion")!=11||complete.toString().contains("sessionHash")||complete.toString().contains(smokePassword))throw new Exception("Unsafe or incomplete backup");
   char[] backupPassword=java.util.UUID.randomUUID().toString().toCharArray();
   byte[] ciphertext=BackupCrypto.encrypt(complete.toString().getBytes("UTF-8"),backupPassword);
   JSONObject roundtrip=new JSONObject(new String(BackupCrypto.decrypt(ciphertext,backupPassword),"UTF-8"));

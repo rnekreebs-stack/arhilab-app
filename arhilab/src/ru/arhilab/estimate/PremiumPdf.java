@@ -87,7 +87,7 @@ final class PremiumPdf {
     }
     private void photograph(String id,float x,float y,float w,float h)throws Exception{if(photos==null||id.isEmpty())return;byte[] bytes;try{bytes=photos.get(id);}catch(Exception unavailable){return;}if(bytes==null||bytes.length>24*1024*1024)return;BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(bytes,0,bytes.length,o);o.inSampleSize=Math.max(1,Math.max(o.outWidth/1800,o.outHeight/1200));o.inJustDecodeBounds=false;Bitmap bitmap=BitmapFactory.decodeByteArray(bytes,0,bytes.length,o);if(bitmap==null)return;float scale=Math.max(w/bitmap.getWidth(),h/bitmap.getHeight()),bw=w/scale,bh=h/scale;float sx=(bitmap.getWidth()-bw)/2,sy=(bitmap.getHeight()-bh)/2;
         c.save();c.clipRect(x,y,x+w,y+h);p.setFilterBitmap(true);p.setAlpha(255);c.drawBitmap(bitmap,new android.graphics.Rect(Math.round(sx),Math.round(sy),Math.round(sx+bw),Math.round(sy+bh)),new RectF(x,y,x+w,y+h),p);c.restore();bitmap.recycle();}
-    private void cover(Sheet sheet)throws Exception{String photo=settings.optBoolean("includePhotos",true)?settings.optString("coverPhotoId"):"";
+    private void cover(Sheet sheet)throws Exception{String photo=settings.optBoolean("includePhotos",true)?settings.optString("coverPhotoId"):"";if(!imageAvailable(photo))photo="";
         if(!photo.isEmpty())photograph(photo,570,92,356,343);
         label("КОММЕРЧЕСКОЕ",LEFT,190,WHITE,38,true);label("ПРЕДЛОЖЕНИЕ",LEFT,235,WHITE,38,true);fill(LEFT,250,92,253,GOLD);
         int y=290;for(String line:wrap(s.optString("projectName"),photo.isEmpty()?850:500,19,true)){label(line,LEFT,y,GOLD,19,true);y+=25;if(y>390)break;}
